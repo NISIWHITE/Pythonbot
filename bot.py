@@ -380,7 +380,6 @@ async def checkout(callback: types.CallbackQuery):
         f"📞 *Спасибо за заказ!*\n\n"
         f"Сумма за работу: *{total} руб.*\n"
         f"⚠️ Стоимость запчастей рассчитывается отдельно.\n\n"
-        f"Наш менеджер свяжется с вами в ближайшее время.\n\n"
         f"📞 Телефон: {PHONE}\n"
         f"📍 Адрес: {ADDRESS}",
         reply_markup=main_keyboard(),
