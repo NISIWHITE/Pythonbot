@@ -1,11 +1,30 @@
-﻿
 import asyncio
+import os
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram import F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+
+# ========== ВЕБ-СЕРВЕР ДЛЯ RENDER (HEALTH CHECK) ==========
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+    def log_message(self, format, *args):
+        return  # Отключаем спам логов сервера в консоль Render
+
+def run_health_check_server():
+    # Render автоматически передает нужный порт в переменную окружения PORT
+    port = int(os.environ.get("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+    server.serve_forever()
 
 # ========== 1. ТОКЕН ==========
 BOT_TOKEN = "8999270734:AAEn2hM5-kgC8XKWtgTpSjwbT4iyGhYbAEc"
@@ -116,7 +135,7 @@ SERVICES = {
             "desc": "Диагностика всей системы специальным оборудованием и ультрафиолетовым фонариком, чтобы точно найти место, откуда уходит хладагент, и устранить причину, а не просто заправлять систему каждое лето."
         }
     },
-      "Диагностика и ремонт дизельных форсунок": {
+    "Диагностика и ремонт дизельных форсунок": {
         "f1": {
             "full_name": "Диагностика форсунок системы Common Rail",
             "price": 15,
@@ -150,12 +169,7 @@ SERVICES = {
     }
 }
 
-# ========== 3.1 КОРОТКИЕ ID РАЗДЕЛОВ (для callback_data) ==========
-# Telegram ограничивает callback_data 64 байтами. Кириллица в UTF-8 занимает
-# по 2 байта на символ, поэтому длинные названия разделов (например
-# "Диагностика и ремонт дизельных форсунок") в callback_data не помещаются
-# и Telegram отвечает ошибкой BUTTON_DATA_INVALID. Поэтому вместо самого
-# названия раздела передаём короткий идентификатор.
+# ========== 3.1 КОРОТКИЕ ID РАЗДЕЛОВ ==========
 SECTION_IDS = {name: f"sec{i}" for i, name in enumerate(SERVICES.keys())}
 SECTION_NAMES = {v: k for k, v in SECTION_IDS.items()}
 
@@ -275,7 +289,6 @@ async def add_to_basket(callback: types.CallbackQuery):
             full_name = services[key].get("full_name", key)
             break
 
-    # Список названий всех позиций в корзине (а не просто их количество)
     basket_names = get_basket_names(user_id)
     basket_list_text = "\n".join(f"• {name}" for name in basket_names)
 
@@ -298,7 +311,6 @@ def sum_price(user_id):
     return total
 
 def get_basket_names(user_id):
-    """Возвращает список полных названий позиций, находящихся в корзине пользователя."""
     names = []
     for key in baskets.get(user_id, []):
         for section, services in SERVICES.items():
@@ -388,10 +400,14 @@ async def checkout(callback: types.CallbackQuery):
     baskets[user_id] = []
     await callback.answer()
 
-# ========== 16. ЗАПУСК ==========
+# ========== 16. ЗАПУСК БОТА ==========
 async def main():
     print("🚗 Магнат сервис бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
+    # 1. Запускаем веб-сервер в отдельном фоновом потоке
+    threading.Thread(target=run_health_check_server, daemon=True).start()
+    
+    # 2. Запускаем цикл aiogram для работы бота
     asyncio.run(main())
