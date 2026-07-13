@@ -88,19 +88,45 @@ async def start(message: types.Message, state: FSMContext):
         reply_markup=main_keyboard()
     )
 
+# Выбор основного раздела -> Показываем инлайн-кнопки подразделов/услуг
 @dp.message(F.text.in_(SERVICES.keys()))
 async def select_section(message: types.Message):
     section = message.text
-    await message.answer(f"📋 Раздел *{section}*. Выберите услугу:", parse_mode="Markdown")
     
+    # Собираем инлайн-кнопки для каждой услуги в выбранном разделе
+    inline_buttons = []
     for key, item in SERVICES[section].items():
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=f"➕ Добавить за {item['price']} руб", callback_data=f"add_{key}")]
-        ])
-        await message.answer(
-            f"🔹 *{item['full_name']}*\n⏱️ Время: {item['time']}\n📝 {item['desc']}",
-            reply_markup=kb, parse_mode="Markdown"
-        )
+        inline_buttons.append([InlineKeyboardButton(text=f"{item['full_name']} — {item['price']} руб.", callback_data=f"view_{key}")])
+        
+    kb = InlineKeyboardMarkup(inline_keyboard=inline_buttons)
+    await message.answer(f"📋 Раздел *{section}*. Выберите интересующую услугу:", reply_markup=kb, parse_mode="Markdown")
+
+# Просмотр конкретной услуги (подраздела) с описанием и кнопкой «Добавить»
+@dp.callback_query(F.data.startswith("view_"))
+async def view_service(callback: types.CallbackQuery):
+    key = callback.data.split("_")[1]
+    
+    # Ищем услугу в базе данных
+    found_item = None
+    for section, services in SERVICES.items():
+        if key in services:
+            found_item = services[key]
+            break
+            
+    if not found_item:
+        await callback.answer("Услуга не найдена.")
+        return
+
+    # Кнопка добавления именно этой услуги в корзину
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"➕ Добавить в корзину ({found_item['price']} руб)", callback_data=f"add_{key}")]
+    ])
+    
+    await callback.message.answer(
+        f"🔹 *{found_item['full_name']}*\n⏱️ Время выполнения: {found_item['time']}\n📝 Описание: {found_item['desc']}",
+        reply_markup=kb, parse_mode="Markdown"
+    )
+    await callback.answer()
 
 @dp.callback_query(F.data.startswith("add_"))
 async def add_to_basket(callback: types.CallbackQuery):
