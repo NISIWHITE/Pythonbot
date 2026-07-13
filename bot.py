@@ -221,24 +221,15 @@ async def handle_menu(message: types.Message, state: FSMContext):
             reply_markup=main_keyboard()
         )
 
-# ПОДРАЗДЕЛЫ: Большой текст со всеми описаниями + чистые инлайн-кнопки
+# ПОДРАЗДЕЛЫ: Только чистые названия на кнопках
 async def show_section_services(message: types.Message, section: str):
     services = SERVICES[section]
     icon = SECTION_ICONS.get(section, "📌")
     
-    # Формируем общий текст со всеми описаниями раздела
-    section_text = f"{icon} *{section}*\n\n"
     buttons = []
-    
     for i, (key, item) in enumerate(services.items(), 1):
-        section_text += f"*{i}. {item['full_name']}*\n"
-        section_text += f"📝 {item['desc']}\n"
-        section_text += f"⏱️ _Время:_ {item['time']}\n"
-        section_text += f"💰 _Цена:_ {item['price']}\n\n"
-        
-        # Кнопки чистые — без указания цен
         buttons.append([InlineKeyboardButton(
-            text=f"⚙️ Выбрать: {item['full_name']}",
+            text=f"{i}. {item['full_name']}",
             callback_data=f"view_{key}"
         )])
         
@@ -246,12 +237,13 @@ async def show_section_services(message: types.Message, section: str):
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     
     await message.answer(
-        section_text + "👇 Нажмите на кнопку ниже, чтобы добавить услугу в корзину:",
+        f"{icon} *{section}*\n\n"
+        f"Выберите интересующую услугу ниже для просмотра подробностей и добавления:",
         reply_markup=kb,
         parse_mode="Markdown"
     )
 
-# ========== 9. ПОДТВЕРЖДЕНИЕ ВЫБОРА ПОЗИЦИИ ==========
+# ========== 9. КАРТОЧКА ПОЗИЦИИ (ТУТ ОПИСАНИЕ) ==========
 @dp.callback_query(F.data.startswith("view_"))
 async def view_service(callback: types.CallbackQuery):
     key = callback.data.split("_")[1]
@@ -269,15 +261,16 @@ async def view_service(callback: types.CallbackQuery):
         return
         
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Добавить в корзину", callback_data=f"add_{key}")],
+        [InlineKeyboardButton(text="✅ Добавить в 🛒", callback_data=f"add_{key}")],
         [InlineKeyboardButton(text="🔙 Назад к списку", callback_data=f"back_{found_section}")]
     ])
     
     await callback.message.edit_text(
-        f"🔹 *Вы выбрали:* {found_item['full_name']}\n\n"
-        f"💰 Цена работы: *{found_item['price']}*\n"
-        f"⏱️ Время выполнения: *{found_item['time']}*\n\n"
-        f"Подтвердите добавление позиции в корзину:",
+        f"🔹 *{found_item['full_name']}*\n\n"
+        f"📝 *Описание:* {found_item['desc']}\n\n"
+        f"⏱️ *Занимает времени:* {found_item['time']}\n"
+        f"💰 *Стоимость работы:* {found_item['price']}\n\n"
+        f"Желаете добавить данную позицию в заказ?",
         reply_markup=kb,
         parse_mode="Markdown"
     )
@@ -338,11 +331,40 @@ async def back_to_menu(callback: types.CallbackQuery):
     await callback.message.answer("📋 Выберите раздел услуг:", reply_markup=main_keyboard())
     await callback.answer()
 
-# ========== 12. ПРОСМОТР И ОЧИСТКА КОРЗИНЫ ==========
+# ========== 12. ПРОСМОТР И ОЧИСТКА КОРЗИНЫ (ИСПРАВЛЕНО!) ==========
 @dp.callback_query(F.data == "go_to_basket")
 async def go_to_basket_callback(callback: types.CallbackQuery):
-    await callback.message.delete()
-    await show_basket_msg(callback.message)
+    # Метод исправлен — теперь он вызывает правильный генератор сообщения корзины
+    user_id = callback.from_user.id
+    basket = baskets.get(user_id, [])
+    
+    if not basket:
+        await callback.message.edit_text("🛒 Ваша корзина пуста. Выберите услуги в меню!", reply_markup=main_keyboard())
+        await callback.answer()
+        return
+        
+    text = "🛒 *Ваша корзина (выбранные услуги):*\n\n"
+    total = 0
+    for i, key in enumerate(basket, 1):
+        for section, services in SERVICES.items():
+            if key in services:
+                # ВНУТРИ КОРЗИНЫ ТЕПЕРЬ ПОЛНОЕ ОПИСАНИЕ И ДЕТАЛИ ПОЗИЦИИ!
+                item = services[key]
+                text += f"*{i}. {item['full_name']}*\n"
+                text += f"📝 {item['desc']}\n"
+                text += f"⏱️ _Время:_ {item['time']}\n"
+                text += f"💰 _Цена работы:_ {item['price']}\n"
+                text += "—" * 15 + "\n"
+                total += item['price_num']
+                break
+                
+    text += f"\n💰 *Итого ориентировочно: {total} руб.*"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="start_checkout")],
+        [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="clear_basket")]
+    ])
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
     await callback.answer()
 
 async def show_basket_msg(message: types.Message):
@@ -353,13 +375,18 @@ async def show_basket_msg(message: types.Message):
         await message.answer("🛒 Ваша корзина пуста. Выберите услуги в меню!", reply_markup=main_keyboard())
         return
         
-    text = "🛒 *Ваша корзина:*\n\n"
+    text = "🛒 *Ваша корзина (выбранные услуги):*\n\n"
     total = 0
     for i, key in enumerate(basket, 1):
         for section, services in SERVICES.items():
             if key in services:
-                text += f"{i}. {services[key]['full_name']} — {services[key]['price']}\n"
-                total += services[key]['price_num']
+                item = services[key]
+                text += f"*{i}. {item['full_name']}*\n"
+                text += f"📝 {item['desc']}\n"
+                text += f"⏱️ _Время:_ {item['time']}\n"
+                text += f"💰 _Цена работы:_ {item['price']}\n"
+                text += "—" * 15 + "\n"
+                total += item['price_num']
                 break
                 
     text += f"\n💰 *Итого ориентировочно: {total} руб.*"
@@ -378,7 +405,7 @@ async def clear_basket_callback(callback: types.CallbackQuery):
     await callback.message.answer("📋 Выберите раздел:", reply_markup=main_keyboard())
     await callback.answer()
 
-# ========== 13. ОФОРМЛЕНИЕ ЗАКАЗА (ВВОД НОМЕРА ВРУЧНУЮ) ==========
+# ========== 13. ОФОРМЛЕНИЕ ЗАКАЗА (ТЕЛЕФОН ТЕКСТОМ) ==========
 @dp.callback_query(F.data == "start_checkout")
 async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
@@ -449,7 +476,7 @@ async def process_phone(message: types.Message, state: FSMContext):
         
     await state.clear()
 
-# ========== 14. FASTAPI СЕРВЕР (ВЕБХУК) ==========
+# ========== 14. FASTAPI С СЕРВЕРОМ ==========
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info(f"Ставим Вебхук: {WEBHOOK_URL}")
