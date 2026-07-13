@@ -84,11 +84,9 @@ dp = Dispatcher()
 # ========== 6. КРАСИВОЕ ГЛАВНОЕ МЕНЮ ==========
 def main_keyboard():
     buttons = []
-    # Добавляем разделы с иконками
     for section in SERVICES.keys():
         icon = SECTION_ICONS.get(section, "📌")
         buttons.append([KeyboardButton(text=f"{icon} {section}")])
-    # Кнопки управления
     buttons.append([KeyboardButton(text="🛒 Корзина"), KeyboardButton(text="🗑 Очистить")])
     buttons.append([KeyboardButton(text="📞 Поделиться номером", request_contact=True)])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
@@ -120,14 +118,12 @@ async def start(message: types.Message, state: FSMContext):
 async def handle_menu(message: types.Message, state: FSMContext):
     text = message.text
     
-    # Проверяем, является ли текст разделом (с иконкой или без)
     for section in SERVICES.keys():
         icon = SECTION_ICONS.get(section, "📌")
         if text == section or text == f"{icon} {section}":
             await show_section_services(message, section)
             return
     
-    # Обработка других кнопок
     if text == "🛒 Корзина":
         await show_basket(message)
     elif text == "🗑 Очистить":
@@ -143,7 +139,6 @@ async def show_section_services(message: types.Message, section: str):
     services = SERVICES[section]
     icon = SECTION_ICONS.get(section, "📌")
     
-    # Создаём кнопки с номерами
     buttons = []
     for i, (key, item) in enumerate(services.items(), 1):
         buttons.append([InlineKeyboardButton(
@@ -151,9 +146,7 @@ async def show_section_services(message: types.Message, section: str):
             callback_data=f"view_{key}"
         )])
     
-    # Кнопка "Назад"
     buttons.append([InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")])
-    
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     
     await message.answer(
@@ -206,11 +199,12 @@ async def add_to_basket(callback: types.CallbackQuery):
     
     baskets[user_id].append(key)
     
-    # Находим название услуги
     service_name = key
+    found_section = "Техобслуживание"  # Дефолтное значение безопасности
     for section, services in SERVICES.items():
         if key in services:
             service_name = services[key]['full_name']
+            found_section = section
             break
     
     total = sum_price(user_id)
@@ -222,7 +216,7 @@ async def add_to_basket(callback: types.CallbackQuery):
         f"💰 Сумма: {total} руб.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="go_to_basket")],
-            [InlineKeyboardButton(text="🔙 Назад к услугам", callback_data=f"back_{section}")]
+            [InlineKeyboardButton(text="🔙 Назад к услугам", callback_data=f"back_{found_section}")]
         ]),
         parse_mode="Markdown"
     )
