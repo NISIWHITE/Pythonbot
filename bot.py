@@ -398,9 +398,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-@app.get("/", methods=["GET", "HEAD"])
+# Хэндлер для обычного перехода в браузере (GET)
+@app.get("/")
 async def root():
     return {"status": "working", "message": "Магнат Сервис Бот работает!"}
+
+# Хэндлер для пинга от Render (HEAD), чтобы сервер не уходил в бесконечный рестарт
+@app.head("/")
+async def root_head():
+    return Response(status_code=200)
 
 @app.post(WEBHOOK_PATH)
 async def webhook(request: Request):
