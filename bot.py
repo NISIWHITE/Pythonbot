@@ -37,7 +37,6 @@ SECTION_MAP = {
     "⛽ Диагностика и ремонт дизельных форсунок": "diesel"
 }
 
-# Для обратного вывода названий в интерфейсе
 CODE_TO_NAME = {
     "tech": "Техобслуживание",
     "comp": "Компьютерная диагностика",
@@ -94,13 +93,13 @@ class OrderState(StatesGroup):
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ========== 6. ГЛАВНОЕ МЕНЮ ==========
+# ========== 5. ГЛАВНОЕ МЕНЮ ==========
 def main_keyboard():
     buttons = [[KeyboardButton(text=text)] for text in SECTION_MAP.keys()]
     buttons.append([KeyboardButton(text="🛒 Корзина"), KeyboardButton(text="🗑 Очистить")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-# ========== 7. КОМАНДА /start ==========
+# ========== 6. КОМАНДА /start ==========
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -118,9 +117,77 @@ async def start(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
+# ========== 7. ОБРАБОТЧИК ТЕЛЕФОНА (СТАВИМ ПЕРВЫМ!) ==========
+@dp.message(OrderState.waiting_for_phone)
+async def process_phone(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    
+    # Обработка отмены
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("❌ Оформление отменено.", reply_markup=main_keyboard())
+        return
+        
+    # Проверяем, что введен номер телефона
+    if not message.text or len(message.text) < 5:
+        await message.answer("❌ Пожалуйста, введите корректный номер телефона (например, +37529XXXXXXX)")
+        return
+        
+    user_phone = message.text
+    basket = baskets.get(user_id, [])
+    
+    if not basket:
+        await message.answer("❌ Ваша корзина пуста. Оформление отменено.", reply_markup=main_keyboard())
+        await state.clear()
+        return
+    
+    text = f"🛒 *Новый заказ!*\n\n"
+    text += f"👤 Клиент: {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
+    text += f"📞 Телефон: `{user_phone}`\n"
+    text += f"🆔 ID: `{user_id}`\n\n"
+    text += f"📋 *Выбранные услуги:*\n"
+    
+    total = 0
+    for key in basket:
+        for code, services in SERVICES.items():
+            if key in services:
+                text += f"🔹 {services[key]['full_name']} — {services[key]['price']}\n"
+                total += services[key]['price_num']
+                break
+                
+    text += f"\n💰 *Итого: {total} руб.*"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📱 Открыть профиль", url=f"tg://user?id={user_id}")]
+    ])
+    
+    try:
+        await bot.send_message(chat_id=MANAGER_ID, text=text, reply_markup=kb, parse_mode="Markdown")
+        await message.answer(
+            f"✅ *Заказ успешно оформлен!*\n\n"
+            f"💰 Общая сумма: *{total} руб.*\n"
+            f"📞 Менеджер свяжется с вами по номеру `{user_phone}` в ближайшее время.",
+            reply_markup=main_keyboard(),
+            parse_mode="Markdown"
+        )
+        baskets[user_id] = []
+    except Exception as e:
+        logging.error(f"Ошибка при отправке заказа менеджеру: {e}")
+        await message.answer(
+            "❌ Произошла ошибка при отправке заявки. Пожалуйста, свяжитесь со СТО напрямую по телефону.",
+            reply_markup=main_keyboard()
+        )
+        
+    await state.clear()
+
 # ========== 8. ОБРАБОТКА МЕНЮ ==========
 @dp.message(F.text)
 async def handle_menu(message: types.Message, state: FSMContext):
+    # Проверяем, не находится ли пользователь в состоянии оформления заказа
+    current_state = await state.get_state()
+    if current_state == OrderState.waiting_for_phone:
+        return  # Игнорируем, если ждём номер
+    
     text = message.text
     user_id = message.from_user.id
     
@@ -339,69 +406,6 @@ async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
     )
     await state.set_state(OrderState.waiting_for_phone)
     await callback.answer()
-
-# ========== ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ТЕЛЕФОНА ==========
-@dp.message(OrderState.waiting_for_phone)
-async def process_phone(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    
-    # Обработка отмены
-    if message.text == "❌ Отмена":
-        await state.clear()
-        await message.answer("❌ Оформление отменено.", reply_markup=main_keyboard())
-        return
-        
-    # Проверяем, что введен номер телефона (хоть что-то)
-    if not message.text or len(message.text) < 5:
-        await message.answer("❌ Пожалуйста, введите корректный номер телефона (например, +37529XXXXXXX)")
-        return
-        
-    user_phone = message.text
-    basket = baskets.get(user_id, [])
-    
-    if not basket:
-        await message.answer("❌ Ваша корзина пуста. Оформление отменено.", reply_markup=main_keyboard())
-        await state.clear()
-        return
-    
-    text = f"🛒 *Новый заказ!*\n\n"
-    text += f"👤 Клиент: {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
-    text += f"📞 Телефон: `{user_phone}`\n"
-    text += f"🆔 ID: `{user_id}`\n\n"
-    text += f"📋 *Выбранные услуги:*\n"
-    
-    total = 0
-    for key in basket:
-        for code, services in SERVICES.items():
-            if key in services:
-                text += f"🔹 {services[key]['full_name']} — {services[key]['price']}\n"
-                total += services[key]['price_num']
-                break
-                
-    text += f"\n💰 *Итого: {total} руб.*"
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📱 Открыть профиль", url=f"tg://user?id={user_id}")]
-    ])
-    
-    try:
-        await bot.send_message(chat_id=MANAGER_ID, text=text, reply_markup=kb, parse_mode="Markdown")
-        await message.answer(
-            f"✅ *Заказ успешно оформлен!*\n\n"
-            f"💰 Общая сумма: *{total} руб.*\n"
-            f"📞 Менеджер свяжется с вами по номеру `{user_phone}` в ближайшее время.",
-            reply_markup=main_keyboard(),
-            parse_mode="Markdown"
-        )
-        baskets[user_id] = []
-    except Exception as e:
-        logging.error(f"Ошибка при отправке заказа менеджеру: {e}")
-        await message.answer(
-            "❌ Произошла ошибка при отправке заявки. Пожалуйста, свяжитесь со СТО напрямую по телефону.",
-            reply_markup=main_keyboard()
-        )
-        
-    await state.clear()
 
 # ========== 14. FASTAPI СЕРВЕР ==========
 @asynccontextmanager
