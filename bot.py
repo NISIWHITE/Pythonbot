@@ -21,11 +21,11 @@ WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
 WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
 
 MANAGER_ID = 8967378534
-PHONE = "+375 (29) 888-47-77"
+PHONE = "+375 (29) 162-86-28"
 ADDRESS = "г. Минск, ул. Меньковский тракт 5"
 
+# Глобальный словарь для хранения корзин пользователей
 baskets = {}
-users = {}
 
 # ========== 2. КРАСИВЫЕ ИКОНКИ ДЛЯ РАЗДЕЛОВ ==========
 SECTION_ICONS = {
@@ -37,47 +37,137 @@ SECTION_ICONS = {
     "Диагностика и ремонт дизельных форсунок": "⛽"
 }
 
-# ========== 3. УСЛУГИ ==========
+# ========== 3. ПОЛНАЯ СТРУКТУРА УСЛУГ И ОПИСАНИЙ ==========
 SERVICES = {
     "Техобслуживание": {
-        "t1": {"full_name": "Замена масла, масляного фильтра", "price": 30, "time": "около часа", "desc": "Замена старого, отработанного масла и грязного фильтра."},
-        "t2": {"full_name": "Замена воздушного фильтра", "price": 20, "time": "20-30 минут", "desc": "Установка нового чистого фильтра вместо забитого пылью."},
-        "t3": {"full_name": "Замена салонного фильтра", "price": 20, "time": "20-40 минут", "desc": "Обновление барьера, который очищает воздух в салоне."},
-        "t4": {"full_name": "Замена тормозных колодок (комплект 4шт)", "price": 40, "time": "около часа", "desc": "Установка новых колодок вместо стёртых."},
-        "t5": {"full_name": "Замена тормозных дисков (комплект 4шт)", "price": 70, "time": "около часа", "desc": "Установка новых дисков взамен изношенных."}
+        "t1": {
+            "full_name": "Замена масла и масляного фильтра", 
+            "price": "30 руб.", 
+            "price_num": 30,
+            "time": "около часа с момента начала работы", 
+            "desc": "Замена старого, отработанного масла и грязного фильтра на свежие, чтобы двигатель работал тише, мягче и прослужил намного дольше без дорогого ремонта."
+        },
+        "t2": {
+            "full_name": "Замена воздушного фильтра", 
+            "price": "20 руб.", 
+            "price_num": 20,
+            "time": "около 20-30 минут с момента начала работы", 
+            "desc": "Установка нового чистого фильтра вместо забитого пылью, чтобы двигатель получал больше кислорода, лучше разгонялся и тратил меньше топлива."
+        },
+        "t3": {
+            "full_name": "Замена салонного фильтра", 
+            "price": "20 руб.", 
+            "price_num": 20,
+            "time": "около 20-40 минут с момента начала работы", 
+            "desc": "Обновление барьера, который очищает воздух в салоне от пыли, аллергенов и выхлопных газов, чтобы в машине всегда было свежо, а кондиционер не источал неприятный запах."
+        },
+        "t4": {
+            "full_name": "Замена тормозных колодок", 
+            "price": "40 руб.", 
+            "price_num": 40,
+            "time": "около часа с момента начала работы", 
+            "desc": "Установка новых колодок вместо стёртых, чтобы машина тормозила чётко, быстро и безопасно, без скрипов и вибраций при нажатии на педаль."
+        },
+        "t5": {
+            "full_name": "Замена тормозных дисков", 
+            "price": "70 руб.", 
+            "price_num": 70,
+            "time": "около часа с момента начала работы", 
+            "desc": "Установка новых дисков взамен изношенных или с бороздами, чтобы торможение стало ровным, без вибраций и биения в педаль, а колодки прилегали идеально."
+        }
     },
     "Компьютерная диагностика": {
-        "c1": {"full_name": "Диагностика ЭСУ", "price": 40, "time": "около 40 минут", "desc": "Компьютерная проверка всех электронных систем двигателя."},
-        "c2": {"full_name": "Сброс ошибок", "price": 30, "time": "около 30 минут", "desc": "Очистка памяти бортового компьютера от кодов неисправностей."}
+        "c1": {
+            "full_name": "Диагностика ЭСУД", 
+            "price": "40 руб.", 
+            "price_num": 40,
+            "time": "около 40 минут с момента начала работы", 
+            "desc": "Компьютерная проверка всех электронных систем двигателя, которая считывает скрытые ошибки и показания датчиков, чтобы точно понять, почему машина тупит, перерасходует топливо или горит «чек», без лишних догадок и разбора мотора."
+        },
+        "c2": {
+            "full_name": "Сброс ошибок", 
+            "price": "30 руб.", 
+            "price_num": 30,
+            "time": "около 30 минут с момента начала работы", 
+            "desc": "Очистка памяти бортового компьютера от кодов неисправностей после ремонта, чтобы погасить «чек» на приборной панели и проверить, решилась ли проблема, без помех от старых записей."
+        }
     },
     "Диагностика и ремонт подвески": {
-        "p1": {"full_name": "Осмотр элементов подвески", "price": 20, "time": "около 30 минут", "desc": "Визуальная и механическая проверка всех элементов подвески."},
-        "p2": {"full_name": "Замена рычагов подвески", "price": 50, "time": "от 1 часа", "desc": "Замена изношенных рычагов подвески на новые."},
-        "p3": {"full_name": "Замена сайлентблоков на снятом рычаге", "price": 15, "time": "около 40 минут", "desc": "Замена резиновых втулок на снятом рычаге."},
-        "p4": {"full_name": "Замена балочных сайлентблоков", "price": 120, "time": "около 1.5 часов", "desc": "Замена сайлентблоков задней балки."}
+        "p1": {
+            "full_name": "Осмотр элементов подвески на износ и повреждения", 
+            "price": "20 руб.", 
+            "price_num": 20,
+            "time": "около 30 минут", 
+            "desc": "Визуальная и механическая проверка элементов подвески, сайлентблоков, амортизаторов и зазоров для выявления скрытых дефектов."
+        },
+        "p2": {
+            "full_name": "Замена рычагов подвески", 
+            "price": "от 50 руб. (в зависимости от рычага)", 
+            "price_num": 50,
+            "time": "от 1 часа", 
+            "desc": "Профессиональный демонтаж старых поврежденных рычагов подвески и установка новых деталей."
+        },
+        "p3": {
+            "full_name": "Замена сайлентблоков на снятом рычаге", 
+            "price": "15 руб.", 
+            "price_num": 15,
+            "time": "около 40 минут", 
+            "desc": "Качественная выпрессовка старых изношенных резинометаллических втулок и запрессовка новых элементов на прессе."
+        },
+        "p4": {
+            "full_name": "Замена балочных сайлентблоков", 
+            "price": "от 120 руб.", 
+            "price_num": 120,
+            "time": "около 1.5 часов", 
+            "desc": "Замена сайлентблоков задней или передней балки автомобиля при потере упругости соединений."
+        }
     },
     "Развал схождения": {
-        "r1": {"full_name": "Регулировка развала схождения 1 оси", "price": 50, "time": "около 30 минут", "desc": "Настройка угла установки колёс на одной оси."},
-        "r2": {"full_name": "Регулировка развала схождения 2х осей", "price": 55, "time": "около 45 минут", "desc": "Настройка углов установки колёс на обеих осях."}
+        "r1": {
+            "full_name": "Регулировка развала схождения 1 оси", 
+            "price": "50 руб.", 
+            "price_num": 50,
+            "time": "около 30 минут с момента начала работы. Настройка происходит по живой очереди.", 
+            "desc": "Развал-схождение — это настройка углов установки колёс, чтобы машина ехала строго прямо, руль не уводил в сторону, а шины изнашивались равномерно, без быстрого съедания резины с одной стороны."
+        },
+        "r2": {
+            "full_name": "Регулировка развала схождения 2х осей", 
+            "price": "55 руб.", 
+            "price_num": 55,
+            "time": "около 45 минут с момента начала работы. Настройка происходит по живой очереди.", 
+            "desc": "Развал-схождение — это настройка углов установки колёс, чтобы машина ехала строго прямо, руль не уводил в сторону, а шины изнашивались равномерно, без быстрого съедания резины с одной стороны."
+        }
     },
     "Заправка кондиционера": {
-        "a1": {"full_name": "Заправка кондиционера", "price": 30, "time": "около 30 минут", "desc": "Дозаправка системы охлаждения хладагентом."},
-        "a2": {"full_name": "Поиск утечки кондиционера", "price": 50, "time": "около часа", "desc": "Диагностика всей системы специальным оборудованием."}
+        "a1": {
+            "full_name": "Заправка кондиционера", 
+            "price": "30 руб.", 
+            "price_num": 30,
+            "time": "около 30 минут с момента начала работы", 
+            "desc": "Заправка кондиционера — это дозаправка системы охлаждения хладагентом взамен утерянного за сезон, чтобы кондиционер снова дул ледяным воздухом, быстрее охлаждал салон в жару и работал без перегрузок, что к тому же снижает расход топлива."
+        },
+        "a2": {
+            "full_name": "Поиск утечки кондиционера", 
+            "price": "50 руб.", 
+            "price_num": 50,
+            "time": "около часа с момента начала работы", 
+            "desc": "Поиск утечки кондиционера — это диагностика всей системы специальным оборудованием и ультрафиолетовым фонариком, чтобы точно найти место, откуда уходит хладагент, и устранить причину, а не просто заправлять систему каждое лето."
+        }
     },
     "Диагностика и ремонт дизельных форсунок": {
-        "f1": {"full_name": "Диагностика форсунок Common Rail", "price": 15, "time": "по запросу", "desc": "Профессиональная диагностика форсунок Common Rail."},
-        "f2": {"full_name": "Диагностика однопружинных форсунок", "price": 6, "time": "по запросу", "desc": "Проверка состояния однопружинных механических форсунок."},
-        "f3": {"full_name": "Диагностика двухпружинных форсунок", "price": 15, "time": "по запросу", "desc": "Проверка состояния двухпружинных механических форсунок."},
-        "f4": {"full_name": "Ремонт однопружинных форсунок", "price": 35, "time": "по запросу", "desc": "Профессиональный ремонт однопружинных форсунок."},
-        "f5": {"full_name": "Ремонт двухпружинных форсунок", "price": 75, "time": "по запросу", "desc": "Профессиональный ремонт двухпружинных форсунок."}
+        "f1": {"full_name": "Диагностика форсунок системы Common Rail", "price": "15 руб. за штуку", "price_num": 15, "time": "по запросу", "desc": "Комплексный тест параметров работы высокоточных дизельных форсунок системы Common Rail на стенде."},
+        "f2": {"full_name": "Диагностика однопружинных механических форсунок", "price": "6 руб. за штуку", "price_num": 6, "time": "по запросу", "desc": "Проверка давления открытия распылителя и качества факела распыла топлива."},
+        "f3": {"full_name": "Диагностика двухпружинных механических форсунок", "price": "15 руб. за штуку", "price_num": 15, "time": "по запросу", "desc": "Проверка параметров работы двухступенчатых механических дизельных форсунок."},
+        "f4": {"full_name": "Ремонт и настройка однопружинных механических форсунок", "price": "35 руб. за штуку", "price_num": 35, "time": "по запросу", "desc": "Разборка, очистка, замена внутренних элементов и точная калибровка давления открытия."},
+        "f5": {"full_name": "Ремонт и настройка двухпружинных механических форсунок", "price": "75 руб. за штуку", "price_num": 75, "time": "по запросу", "desc": "Профессиональное восстановление геометрии и калибровка ступеней впрыска двухпружинной форсунки."}
     }
 }
 
-# ========== 4. СОСТОЯНИЯ ==========
-class Form(StatesGroup):
-    waiting_section = State()
+# ========== 4. СОСТОЯНИЯ (FSM) ==========
+class OrderState(StatesGroup):
+    waiting_for_phone = State()
 
-# ========== 5. БОТ ==========
+# ========== 5. БОТ И ДИСПЕТЧЕР ==========
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -88,21 +178,16 @@ def main_keyboard():
         icon = SECTION_ICONS.get(section, "📌")
         buttons.append([KeyboardButton(text=f"{icon} {section}")])
     buttons.append([KeyboardButton(text="🛒 Корзина"), KeyboardButton(text="🗑 Очистить")])
-    buttons.append([KeyboardButton(text="📞 Поделиться номером", request_contact=True)])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
 # ========== 7. КОМАНДА /start ==========
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    if user_id not in users:
-        users[user_id] = {
-            "username": message.from_user.username or "без юзернейма",
-            "first_name": message.from_user.first_name or "без имени"
-        }
-    baskets[user_id] = []
     await state.clear()
-    
+    user_id = message.from_user.id
+    if user_id not in baskets:
+        baskets[user_id] = []
+        
     await message.answer(
         f"🖐️ *Добро пожаловать в Магнат Сервис!*\n\n"
         f"🚗 Я помогу вам рассчитать стоимость ремонта вашего авто.\n\n"
@@ -113,21 +198,22 @@ async def start(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-# ========== 8. ВЫБОР РАЗДЕЛА ==========
+# ========== 8. ОБРАБОТКА ТЕКСТОВЫХ НАЖАТИЙ МЕНЮ ==========
 @dp.message(F.text)
 async def handle_menu(message: types.Message, state: FSMContext):
     text = message.text
+    user_id = message.from_user.id
     
     for section in SERVICES.keys():
         icon = SECTION_ICONS.get(section, "📌")
         if text == section or text == f"{icon} {section}":
             await show_section_services(message, section)
             return
-    
+            
     if text == "🛒 Корзина":
-        await show_basket(message)
+        await show_basket_msg(message)
     elif text == "🗑 Очистить":
-        baskets[message.from_user.id] = []
+        baskets[user_id] = []
         await message.answer("🧹 Корзина очищена!", reply_markup=main_keyboard())
     else:
         await message.answer(
@@ -135,28 +221,37 @@ async def handle_menu(message: types.Message, state: FSMContext):
             reply_markup=main_keyboard()
         )
 
+# ПОДРАЗДЕЛЫ: Большой текст со всеми описаниями + чистые инлайн-кнопки
 async def show_section_services(message: types.Message, section: str):
     services = SERVICES[section]
     icon = SECTION_ICONS.get(section, "📌")
     
+    # Формируем общий текст со всеми описаниями раздела
+    section_text = f"{icon} *{section}*\n\n"
     buttons = []
+    
     for i, (key, item) in enumerate(services.items(), 1):
+        section_text += f"*{i}. {item['full_name']}*\n"
+        section_text += f"📝 {item['desc']}\n"
+        section_text += f"⏱️ _Время:_ {item['time']}\n"
+        section_text += f"💰 _Цена:_ {item['price']}\n\n"
+        
+        # Кнопки чистые — без указания цен
         buttons.append([InlineKeyboardButton(
-            text=f"{i}. {item['full_name']} — {item['price']} руб.",
+            text=f"⚙️ Выбрать: {item['full_name']}",
             callback_data=f"view_{key}"
         )])
-    
-    buttons.append([InlineKeyboardButton(text="🔙 Назад в меню", callback_data="back_to_menu")])
+        
+    buttons.append([InlineKeyboardButton(text="🔙 Назад в главное меню", callback_data="back_to_menu")])
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     
     await message.answer(
-        f"{icon} *{section}*\n\n"
-        f"Выберите услугу:",
+        section_text + "👇 Нажмите на кнопку ниже, чтобы добавить услугу в корзину:",
         reply_markup=kb,
         parse_mode="Markdown"
     )
 
-# ========== 9. ПРОСМОТР УСЛУГИ ==========
+# ========== 9. ПОДТВЕРЖДЕНИЕ ВЫБОРА ПОЗИЦИИ ==========
 @dp.callback_query(F.data.startswith("view_"))
 async def view_service(callback: types.CallbackQuery):
     key = callback.data.split("_")[1]
@@ -168,21 +263,21 @@ async def view_service(callback: types.CallbackQuery):
             found_item = services[key]
             found_section = section
             break
-    
+            
     if not found_item:
         await callback.answer("Услуга не найдена.")
         return
-    
+        
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"✅ Добавить ({found_item['price']} руб)", callback_data=f"add_{key}")],
-        [InlineKeyboardButton(text="🔙 Назад", callback_data=f"back_{found_section}")]
+        [InlineKeyboardButton(text="✅ Добавить в корзину", callback_data=f"add_{key}")],
+        [InlineKeyboardButton(text="🔙 Назад к списку", callback_data=f"back_{found_section}")]
     ])
     
     await callback.message.edit_text(
-        f"🔹 *{found_item['full_name']}*\n\n"
-        f"📝 Описание: {found_item['desc']}\n\n"
-        f"⏱️ Время: {found_item['time']}\n"
-        f"💰 Цена: *{found_item['price']} руб.*",
+        f"🔹 *Вы выбрали:* {found_item['full_name']}\n\n"
+        f"💰 Цена работы: *{found_item['price']}*\n"
+        f"⏱️ Время выполнения: *{found_item['time']}*\n\n"
+        f"Подтвердите добавление позиции в корзину:",
         reply_markup=kb,
         parse_mode="Markdown"
     )
@@ -196,27 +291,27 @@ async def add_to_basket(callback: types.CallbackQuery):
     
     if user_id not in baskets:
         baskets[user_id] = []
-    
+        
     baskets[user_id].append(key)
     
-    service_name = key
-    found_section = "Техобслуживание"  # Дефолтное значение безопасности
+    service_name = ""
+    found_section = ""
     for section, services in SERVICES.items():
         if key in services:
             service_name = services[key]['full_name']
             found_section = section
             break
-    
+            
     total = sum_price(user_id)
     
-    await callback.answer(f"✅ Добавлено: {service_name}!")
+    await callback.answer(f"✅ Добавлено!")
     await callback.message.edit_text(
-        f"✅ *{service_name}* добавлен в корзину!\n\n"
-        f"📦 В корзине: {len(baskets[user_id])} позиций\n"
-        f"💰 Сумма: {total} руб.",
+        f"✅ Услуга *«{service_name}»* добавлена в корзину!\n\n"
+        f"📦 Всего в корзине: {len(baskets[user_id])} поз.\n"
+        f"💰 Общая сумма: {total} руб.",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="go_to_basket")],
-            [InlineKeyboardButton(text="🔙 Назад к услугам", callback_data=f"back_{found_section}")]
+            [InlineKeyboardButton(text="🔙 К списку услуг", callback_data=f"back_{found_section}")]
         ]),
         parse_mode="Markdown"
     )
@@ -226,11 +321,11 @@ def sum_price(user_id):
     for key in baskets.get(user_id, []):
         for section, services in SERVICES.items():
             if key in services:
-                total += services[key]['price']
+                total += services[key]['price_num']
                 break
     return total
 
-# ========== 11. НАЗАД ==========
+# ========== 11. КНОПКИ НАЗАД ==========
 @dp.callback_query(F.data.startswith("back_"))
 async def back_to_section(callback: types.CallbackQuery):
     section = callback.data.split("_")[1]
@@ -239,155 +334,122 @@ async def back_to_section(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data == "back_to_menu")
 async def back_to_menu(callback: types.CallbackQuery):
-    await callback.message.edit_text(
-        "🖐️ *Главное меню*\n\n"
-        "Выберите раздел из меню ниже:",
-        reply_markup=None,
-        parse_mode="Markdown"
-    )
-    await callback.message.answer(
-        "📋 Выберите раздел:",
-        reply_markup=main_keyboard()
-    )
+    await callback.message.delete()
+    await callback.message.answer("📋 Выберите раздел услуг:", reply_markup=main_keyboard())
     await callback.answer()
 
-# ========== 12. КОРЗИНА ==========
+# ========== 12. ПРОСМОТР И ОЧИСТКА КОРЗИНЫ ==========
 @dp.callback_query(F.data == "go_to_basket")
-async def go_to_basket(callback: types.CallbackQuery):
-    await show_basket(callback.message)
+async def go_to_basket_callback(callback: types.CallbackQuery):
+    await callback.message.delete()
+    await show_basket_msg(callback.message)
     await callback.answer()
 
-async def show_basket(message: types.Message):
+async def show_basket_msg(message: types.Message):
     user_id = message.from_user.id
     basket = baskets.get(user_id, [])
     
     if not basket:
-        await message.answer("🛒 Корзина пуста.", reply_markup=main_keyboard())
+        await message.answer("🛒 Ваша корзина пуста. Выберите услуги в меню!", reply_markup=main_keyboard())
         return
-    
+        
     text = "🛒 *Ваша корзина:*\n\n"
     total = 0
     for i, key in enumerate(basket, 1):
         for section, services in SERVICES.items():
             if key in services:
-                text += f"{i}. {services[key]['full_name']} — {services[key]['price']} руб.\n"
-                total += services[key]['price']
+                text += f"{i}. {services[key]['full_name']} — {services[key]['price']}\n"
+                total += services[key]['price_num']
                 break
-    
-    text += f"\n💰 *Итого: {total} руб.*"
+                
+    text += f"\n💰 *Итого ориентировочно: {total} руб.*"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="checkout")],
+        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="start_checkout")],
         [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="clear_basket")]
     ])
-    
     await message.answer(text, reply_markup=kb, parse_mode="Markdown")
 
 @dp.callback_query(F.data == "clear_basket")
 async def clear_basket_callback(callback: types.CallbackQuery):
-    baskets[callback.from_user.id] = []
+    user_id = callback.from_user.id
+    baskets[user_id] = []
     await callback.message.edit_text("🧹 Корзина очищена!")
     await callback.message.answer("📋 Выберите раздел:", reply_markup=main_keyboard())
     await callback.answer()
 
-# ========== 13. ОФОРМЛЕНИЕ ЗАКАЗА ==========
-@dp.callback_query(F.data == "checkout")
-async def checkout(callback: types.CallbackQuery):
+# ========== 13. ОФОРМЛЕНИЕ ЗАКАЗА (ВВОД НОМЕРА ВРУЧНУЮ) ==========
+@dp.callback_query(F.data == "start_checkout")
+async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
     user_id = callback.from_user.id
+    if not baskets.get(user_id, []):
+        await callback.answer("Ваша корзина пуста.")
+        return
+        
+    cancel_kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Отмена оформления")]], 
+        resize_keyboard=True
+    )
+    
+    await callback.message.answer(
+        "📱 Пожалуйста, введите ваш *номер телефона* текстом (например, +37529XXXXXXX), "
+        "чтобы наш менеджер мог с вами связаться:",
+        reply_markup=cancel_kb,
+        parse_mode="Markdown"
+    )
+    await state.set_state(OrderState.waiting_for_phone)
+    await callback.answer()
+
+@dp.message(OrderState.waiting_for_phone)
+async def process_phone(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    
+    if message.text == "❌ Отмена оформления":
+        await state.clear()
+        await message.answer("❌ Оформление отменено.", reply_markup=main_keyboard())
+        return
+        
+    user_phone = message.text
     basket = baskets.get(user_id, [])
     
-    if not basket:
-        await callback.answer("Корзина пуста.")
-        return
-    
+    # Сборка сообщения менеджеру СТО
     text = f"🛒 *Новый заказ!*\n\n"
-    text += f"👤 Клиент: {callback.from_user.first_name} (@{callback.from_user.username or 'без юзернейма'})\n"
+    text += f"👤 Клиент: {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
+    text += f"📞 Телефон: `{user_phone}`\n"
     text += f"🆔 ID: `{user_id}`\n\n"
-    text += f"📋 *Услуги:*\n"
+    text += f"📋 *Выбранные услуги:*\n"
     
     total = 0
     for i, key in enumerate(basket, 1):
         for section, services in SERVICES.items():
             if key in services:
-                text += f"{i}. {services[key]['full_name']} — {services[key]['price']} руб.\n"
-                total += services[key]['price']
+                text += f"{i}. {services[key]['full_name']} — {services[key]['price']}\n"
+                total += services[key]['price_num']
                 break
-    
+                
     text += f"\n💰 *Итого: {total} руб.*"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📞 Позвонить клиенту", url=f"tg://user?id={user_id}")]
+        [InlineKeyboardButton(text="📱 Открыть профиль", url=f"tg://user?id={user_id}")]
     ])
     
     try:
         await bot.send_message(chat_id=MANAGER_ID, text=text, reply_markup=kb, parse_mode="Markdown")
-        await callback.message.edit_text(
-            f"✅ *Заказ оформлен!*\n\n"
-            f"💰 Сумма: *{total} руб.*\n\n"
-            f"📞 Менеджер свяжется с вами в ближайшее время.",
-            reply_markup=None,
+        await message.answer(
+            f"✅ *Заказ успешно оформлен!*\n\n"
+            f"💰 Общая сумма: *{total} руб.*\n"
+            f"📞 Менеджер свяжется с вами по номеру `{user_phone}` в ближайшее время.",
+            reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
-        await callback.message.answer("📋 Выберите раздел:", reply_markup=main_keyboard())
+        baskets[user_id] = []  # Очистка корзины только после успешной отправки!
     except Exception as e:
-        logging.error(f"Ошибка менеджеру: {e}")
-        await callback.message.answer("❌ Ошибка при отправке заказа. Попробуйте позже.")
-    
-    baskets[user_id] = []
-    await callback.answer()
+        logging.error(f"Ошибка при отправке заказа менеджеру: {e}")
+        await message.answer("❌ Произошла ошибка при отправке заявки. Пожалуйста, свяжитесь со СТО напрямую по телефону.", reply_markup=main_keyboard())
+        
+    await state.clear()
 
-# ========== 14. КОНТАКТ ==========
-@dp.message(F.contact)
-async def handle_contact(message: types.Message):
-    user_id = message.from_user.id
-    if user_id not in users:
-        users[user_id] = {}
-    users[user_id]["phone"] = message.contact.phone_number
-    await message.answer("✅ Телефон сохранён!", reply_markup=main_keyboard())
-    
-    try:
-        await bot.send_message(
-            chat_id=MANAGER_ID,
-            text=f"📞 *Новый контакт!*\n\n"
-                 f"👤 {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
-                 f"📱 `{message.contact.phone_number}`",
-            parse_mode="Markdown"
-        )
-    except:
-        pass
-
-# ========== 15. АДМИН-КОМАНДЫ ==========
-@dp.message(Command("users"))
-async def list_users(message: types.Message):
-    if message.from_user.id != MANAGER_ID:
-        return
-    if not users:
-        await message.answer("📭 Нет пользователей.")
-        return
-    
-    text = "👥 *Список пользователей:*\n\n"
-    for uid, data in users.items():
-        phone = data.get('phone', 'не указан')
-        text += f"• {data.get('first_name', 'Без имени')} (@{data.get('username', '')}) — 📞 {phone}\n"
-    
-    await message.answer(text, parse_mode="Markdown")
-
-@dp.message(Command("stats"))
-async def stats(message: types.Message):
-    if message.from_user.id != MANAGER_ID:
-        return
-    
-    total_users = len(users)
-    active_baskets = len([b for b in baskets.values() if b])
-    
-    await message.answer(
-        f"📊 *Статистика бота:*\n\n"
-        f"👥 Всего пользователей: {total_users}\n"
-        f"🛒 Активных корзин: {active_baskets}",
-        parse_mode="Markdown"
-    )
-
-# ========== 16. FASTAPI ==========
+# ========== 14. FASTAPI СЕРВЕР (ВЕБХУК) ==========
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info(f"Ставим Вебхук: {WEBHOOK_URL}")
@@ -398,12 +460,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# Хэндлер для обычного перехода в браузере (GET)
 @app.get("/")
 async def root():
     return {"status": "working", "message": "Магнат Сервис Бот работает!"}
 
-# Хэндлер для пинга от Render (HEAD), чтобы сервер не уходил в бесконечный рестарт
 @app.head("/")
 async def root_head():
     return Response(status_code=200)
