@@ -398,7 +398,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-@app.get("/")
+@app.get("/", methods=["GET", "HEAD"])
 async def root():
     return {"status": "working", "message": "Магнат Сервис Бот работает!"}
 
