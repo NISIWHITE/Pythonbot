@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
 # ========== 1. ТОКЕН ==========
-BOT_TOKEN = "8999270734:AAEn2hM5-kgC8XKWtgTpSjwbT4iyGhYbAEc"
+BOT_TOKEN = "8999270734:AAHfpk2XBynYvzU_3EqeduWhcdSGKsUTRxQ"
 
 # ========== 2. ID МЕНЕДЖЕРА (КОМУ ПРИХОДЯТ ЗАКАЗЫ) ==========
 # Узнайте свой ID у бота @userinfobot
