@@ -138,7 +138,7 @@ async def handle_menu(message: types.Message, state: FSMContext):
     else:
         await message.answer("❓ Пожалуйста, выберите раздел из меню ниже.", reply_markup=main_keyboard())
 
-# Список позиций в подразделе (без нумерации)
+# Список позиций в подразделе
 async def show_section_services(message: types.Message, code: str):
     services = SERVICES[code]
     icon = SECTION_ICONS.get(code, "📌")
@@ -253,7 +253,7 @@ async def go_to_basket_callback(callback: types.CallbackQuery):
     basket = baskets.get(user_id, [])
     
     if not basket:
-        await callback.message.edit_text("🛒 Ваша корзина пуста. Выберите услуги в меню!", reply_markup=main_keyboard())
+        await callback.message.edit_text("🛒 Ваша корзина пуста. Выберите услуги в меню!")
         await callback.answer()
         return
         
@@ -327,7 +327,7 @@ async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
         return
         
     cancel_kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="❌ Отмена оформления")]], 
+        keyboard=[[KeyboardButton(text="❌ Отмена")]], 
         resize_keyboard=True
     )
     
@@ -340,17 +340,29 @@ async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
     await state.set_state(OrderState.waiting_for_phone)
     await callback.answer()
 
+# ========== ИСПРАВЛЕННЫЙ ОБРАБОТЧИК ТЕЛЕФОНА ==========
 @dp.message(OrderState.waiting_for_phone)
 async def process_phone(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     
-    if message.text == "❌ Отмена оформления":
+    # Обработка отмены
+    if message.text == "❌ Отмена":
         await state.clear()
         await message.answer("❌ Оформление отменено.", reply_markup=main_keyboard())
         return
         
+    # Проверяем, что введен номер телефона (хоть что-то)
+    if not message.text or len(message.text) < 5:
+        await message.answer("❌ Пожалуйста, введите корректный номер телефона (например, +37529XXXXXXX)")
+        return
+        
     user_phone = message.text
     basket = baskets.get(user_id, [])
+    
+    if not basket:
+        await message.answer("❌ Ваша корзина пуста. Оформление отменено.", reply_markup=main_keyboard())
+        await state.clear()
+        return
     
     text = f"🛒 *Новый заказ!*\n\n"
     text += f"👤 Клиент: {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
@@ -384,7 +396,10 @@ async def process_phone(message: types.Message, state: FSMContext):
         baskets[user_id] = []
     except Exception as e:
         logging.error(f"Ошибка при отправке заказа менеджеру: {e}")
-        await message.answer("❌ Произошла ошибка при отправке заявки. Пожалуйста, свяжитесь со СТО напрямую по телефону.", reply_markup=main_keyboard())
+        await message.answer(
+            "❌ Произошла ошибка при отправке заявки. Пожалуйста, свяжитесь со СТО напрямую по телефону.",
+            reply_markup=main_keyboard()
+        )
         
     await state.clear()
 
