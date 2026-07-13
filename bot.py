@@ -1,26 +1,35 @@
-import asyncio
+import os
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request, Response
+
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
 from aiogram import F
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 
-# ========== 1. ТОКЕН ==========
-BOT_TOKEN = "8999270734:AAHfpk2XBynYvzU_3EqeduWhcdSGKsUTRxQ"
+# Настройка логирования для панели Render
+logging.basicConfig(level=logging.INFO)
 
-# ========== 2. ID МЕНЕДЖЕРА (КОМУ ПРИХОДЯТ ЗАКАЗЫ) ==========
-# Узнайте свой ID у бота @userinfobot
-MANAGER_ID = 896122548  # ЗАМЕНИТЕ НА СВОЙ ID
+# ========== 1. НАСТРОЙКИ И ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ==========
+BOT_TOKEN = os.getenv(8999270734:AAHfpk2XBynYvzU_3EqeduWhcdSGKsUTRxQ)
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
-# ========== 3. КОНТАКТЫ ==========
+# Маршруты для Telegram Вебхука
+WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
+WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
+
+# ID Менеджера и Контакты
+MANAGER_ID = 896122548
 PHONE = "+375 (29) 162-86-28"
 ADDRESS = "г. Минск, ул. Меньковский тракт 5"
 
-# ========== 4. КОРЗИНА И ПОЛЬЗОВАТЕЛИ ==========
+# Базы данных в оперативной памяти
 baskets = {}
-users = {}  # для статистики
+users = {}
 
+# ========== 2. БАЗА ДАННЫХ УСЛУГ ==========
 SERVICES = {
     "Техобслуживание": {
         "t1": {
@@ -156,27 +165,25 @@ SERVICES = {
     }
 }
 
-# ========== 6. БОТ ==========
+# ========== 3. ИНИЦИАЛИЗАЦИЯ ИНСТРУМЕНТОВ AIOGRAM ==========
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ========== 7. ГЛАВНОЕ МЕНЮ ==========
+# ========== 4. КЛАВИАТУРЫ ==========
 def main_keyboard():
     buttons = [[KeyboardButton(text=section)] for section in SERVICES.keys()]
     buttons.append([KeyboardButton(text="🛒 Моя корзина")])
     buttons.append([KeyboardButton(text="🧹 Очистить корзину")])
-    # Кнопка для запроса номера телефона
     buttons.append([KeyboardButton(text="📞 Поделиться номером", request_contact=True)])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-# ========== 8. /start ==========
+# ========== 5. ОБРАБОТЧИКИ СОБЫТИЙ (ХЭНДЛЕРЫ) ==========
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     username = message.from_user.username or "без юзернейма"
     first_name = message.from_user.first_name or "без имени"
 
-    # Запоминаем пользователя
     if user_id not in users:
         users[user_id] = {"username": username, "first_name": first_name}
 
@@ -193,11 +200,6 @@ async def start(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-# ========== 9. ОСТАЛЬНЫЕ ХЭНДЛЕРЫ (выбор услуг, корзина) ==========
-# ... (вставьте сюда весь ваш код, который я давал ранее)
-# Все функции: select_section, show_service, add_to_basket, show_basket, clear_basket
-
-# ========== 10. ОФОРМЛЕНИЕ ЗАКАЗА ==========
 @dp.callback_query(F.data == "checkout")
 async def checkout(callback: types.CallbackQuery):
     user_id = callback.from_user.id
@@ -208,7 +210,6 @@ async def checkout(callback: types.CallbackQuery):
         await callback.answer()
         return
 
-    # Формируем текст заказа
     text = "🛒 *Новый заказ!*\n\n"
     text += f"👤 Клиент: {callback.from_user.first_name} (@{callback.from_user.username or 'без юзернейма'})\n"
     text += f"🆔 ID: {user_id}\n\n"
@@ -227,30 +228,22 @@ async def checkout(callback: types.CallbackQuery):
     text += f"\n💰 *Итого: {total} руб.*"
     text += f"\n\n⚠️ Стоимость запчастей рассчитывается отдельно."
 
-    # Кнопка "Позвонить клиенту" (для менеджера)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📞 Позвонить клиенту", url=f"tg://user?id={user_id}")]
         ]
     )
 
-    # Отправляем заказ менеджеру
     try:
-        await bot.send_message(
-            chat_id=MANAGER_ID,
-            text=text,
-            reply_markup=keyboard,
-            parse_mode="Markdown"
-        )
+        await bot.send_message(chat_id=MANAGER_ID, text=text, reply_markup=keyboard, parse_mode="Markdown")
         await bot.send_message(
             chat_id=MANAGER_ID,
             text="⚠️ *Важно:* Номер телефона клиента не привязан к Telegram. Уточните его при звонке.",
             parse_mode="Markdown"
         )
     except Exception as e:
-        print(f"Ошибка отправки менеджеру: {e}")
+        logging.error(f"Ошибка отправки менеджеру: {e}")
 
-    # Ответ клиенту
     await callback.message.answer(
         f"📞 *Спасибо за заказ!*\n\n"
         f"Сумма за работу: *{total} руб.*\n"
@@ -262,17 +255,14 @@ async def checkout(callback: types.CallbackQuery):
         parse_mode="Markdown"
     )
 
-    # Очищаем корзину
     baskets[user_id] = []
     await callback.answer()
 
-# ========== 11. ОБРАБОТКА НОМЕРА ТЕЛЕФОНА ==========
 @dp.message(F.contact)
 async def handle_contact(message: types.Message):
     user_id = message.from_user.id
     contact = message.contact
 
-    # Сохраняем номер в словаре пользователя
     if user_id not in users:
         users[user_id] = {}
 
@@ -285,7 +275,6 @@ async def handle_contact(message: types.Message):
         reply_markup=main_keyboard()
     )
 
-    # Отправляем уведомление менеджеру, что клиент поделился номером
     try:
         await bot.send_message(
             chat_id=MANAGER_ID,
@@ -295,9 +284,8 @@ async def handle_contact(message: types.Message):
             parse_mode="Markdown"
         )
     except Exception as e:
-        print(f"Ошибка отправки уведомления: {e}")
+        logging.error(f"Ошибка отправки уведомления менеджеру: {e}")
 
-# ========== 12. АДМИН-КОМАНДЫ ==========
 @dp.message(Command("users"))
 async def list_users(message: types.Message):
     if message.from_user.id != MANAGER_ID:
@@ -315,10 +303,30 @@ async def list_users(message: types.Message):
 
     await message.answer(text, parse_mode="Markdown")
 
-# ========== 13. ЗАПУСК ==========
-async def main():
-    print("🚗 Магнат сервис бот запущен!")
-    await dp.start_polling(bot)
+# ========== 6. СЛУЖЕБНЫЙ МЕНЕДЖЕР FASTAPI (LIFESPAN) ==========
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logging.info(f"Настройка Webhook на адрес: {WEBHOOK_URL}")
+    await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
+    yield
+    logging.info("Удаление Webhook при выключении...")
+    await bot.delete_webhook()
+    await bot.session.close()
 
-if __name__ == "__main__":
-    asyncio.run(main())
+app = FastAPI(lifespan=lifespan)
+
+# ========== 7. МАРШРУТЫ (ЭНДПОИНТЫ) FASTAPI ==========
+@app.get("/")
+async def root():
+    return {"status": "alive", "info": "Magnat Auto-Service Bot"}
+
+@app.post(WEBHOOK_PATH)
+async def webhook(request: Request):
+    try:
+        data = await request.json()
+        update = types.Update.model_validate(data, context={"bot": bot})
+        await dp.feed_update(bot, update)
+        return Response(status_code=200)
+    except Exception as e:
+        logging.error(f"Ошибка обработки входящего вебхука Telegram: {e}")
+        return Response(status_code=500)
