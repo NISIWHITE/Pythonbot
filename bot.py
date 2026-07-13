@@ -1,7 +1,4 @@
 import asyncio
-import os
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.filters import Command
@@ -9,32 +6,22 @@ from aiogram import F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 
-# ========== ВЕБ-СЕРВЕР ДЛЯ RENDER (HEALTH CHECK) ==========
-class HealthCheckHandler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.send_header("Content-type", "text/plain")
-        self.end_headers()
-        self.wfile.write(b"Bot is alive!")
-
-    def log_message(self, format, *args):
-        return  # Отключаем спам логов сервера в консоль Render
-
-def run_health_check_server():
-    # Render автоматически передает нужный порт в переменную окружения PORT
-    port = int(os.environ.get("PORT", 10000))
-    server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
-    server.serve_forever()
-
 # ========== 1. ТОКЕН ==========
 BOT_TOKEN = "8999270734:AAEn2hM5-kgC8XKWtgTpSjwbT4iyGhYbAEc"
 
-# ========== 2. КОНТАКТЫ ==========
+# ========== 2. ID МЕНЕДЖЕРА (КОМУ ПРИХОДЯТ ЗАКАЗЫ) ==========
+# Узнайте свой ID у бота @userinfobot
+MANAGER_ID = 896122548  # ЗАМЕНИТЕ НА СВОЙ ID
+
+# ========== 3. КОНТАКТЫ ==========
 PHONE = "+375 (29) 162-86-28"
 ADDRESS = "г. Минск, ул. Меньковский тракт 5"
 
-# ========== 3. УСЛУГИ ==========
-SERVICES = {
+# ========== 4. КОРЗИНА И ПОЛЬЗОВАТЕЛИ ==========
+baskets = {}
+users = {}  # для статистики
+
+ SERVICES = {
     "Техобслуживание": {
         "t1": {
             "full_name": "Замена масла, масляного фильтра",
@@ -118,7 +105,7 @@ SERVICES = {
             "full_name": "Регулировка развала схождения 2х осей",
             "price": 55,
             "time": "около 45 минут",
-            "desc": "Настройка углов установки колёс на обеих осях для идеальной управляемости и равномерного износа шин."
+[13.07.2026 17:32] Леша: "desc": "Настройка углов установки колёс на обеих осях для идеальной управляемости и равномерного износа шин."
         }
     },
     "Заправка кондиционера": {
@@ -169,17 +156,6 @@ SERVICES = {
     }
 }
 
-# ========== 3.1 КОРОТКИЕ ID РАЗДЕЛОВ ==========
-SECTION_IDS = {name: f"sec{i}" for i, name in enumerate(SERVICES.keys())}
-SECTION_NAMES = {v: k for k, v in SECTION_IDS.items()}
-
-# ========== 4. КОРЗИНА ==========
-baskets = {}
-
-# ========== 5. СОСТОЯНИЯ ==========
-class Form(StatesGroup):
-    waiting_choice = State()
-
 # ========== 6. БОТ ==========
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
@@ -189,12 +165,21 @@ def main_keyboard():
     buttons = [[KeyboardButton(text=section)] for section in SERVICES.keys()]
     buttons.append([KeyboardButton(text="🛒 Моя корзина")])
     buttons.append([KeyboardButton(text="🧹 Очистить корзину")])
+    # Кнопка для запроса номера телефона
+    buttons.append([KeyboardButton(text="📞 Поделиться номером", request_contact=True)])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
 # ========== 8. /start ==========
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
+    username = message.from_user.username or "без юзернейма"
+    first_name = message.from_user.first_name or "без имени"
+
+    # Запоминаем пользователя
+    if user_id not in users:
+        users[user_id] = {"username": username, "first_name": first_name}
+
     baskets[user_id] = []
     await state.clear()
     await message.answer(
@@ -202,159 +187,33 @@ async def start(message: types.Message, state: FSMContext):
         f"📞 Телефон: {PHONE}\n"
         f"📍 Адрес: {ADDRESS}\n\n"
         f"⚠️ *Важно:* Стоимость запчастей рассчитывается отдельно.\n\n"
-        f"Выбери раздел из меню ниже, чтобы посмотреть услуги и цены.",
+        f"Выбери раздел из меню ниже, чтобы посмотреть услуги и цены.\n"
+        f"После выбора услуг нажми '🛒 Моя корзина' для оформления.",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
 
-# ========== 9. ВЫБОР РАЗДЕЛА ==========
-@dp.message(F.text.in_(SERVICES.keys()))
-async def select_section(message: types.Message, state: FSMContext):
-    section = message.text
-    services = SERVICES.get(section, {})
+# ========== 9. ОСТАЛЬНЫЕ ХЭНДЛЕРЫ (выбор услуг, корзина) ==========
+# ... (вставьте сюда весь ваш код, который я давал ранее)
+# Все функции: select_section, show_service, add_to_basket, show_basket, clear_basket
 
-    if not services:
-        await message.answer(
-            f"📂 Раздел *{section}*\n⏳ Скоро здесь появятся услуги.",
-            reply_markup=main_keyboard(),
-            parse_mode="Markdown"
-        )
-        return
-
-    await state.update_data(current_section=section)
-
-    keyboard_buttons = []
-    for key, data in services.items():
-        button_text = data.get("full_name", key)
-        keyboard_buttons.append([InlineKeyboardButton(text=button_text, callback_data=f"svc_{key}")])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-
-    await message.answer(
-        f"📂 *{section}*\nВыберите услугу:",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-
-# ========== 10. ПОКАЗ ОПИСАНИЯ ==========
-@dp.callback_query(F.data.startswith("svc_"))
-async def show_service(callback: types.CallbackQuery, state: FSMContext):
-    key = callback.data.replace("svc_", "")
-
-    found = False
-    for section, services in SERVICES.items():
-        if key in services:
-            data = services[key]
-            full_name = data.get("full_name", key)
-            found = True
-            break
-
-    if not found:
-        await callback.answer("Услуга не найдена")
-        return
-
-    text = (
-        f"🔧 *{full_name}*\n\n"
-        f"📝 {data['desc']}\n\n"
-        f"💰 Цена работы: *{data['price']} руб.*\n"
-        f"⏱️ Время: *{data['time']}*"
-    )
-
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="✅ В корзину", callback_data=f"add_{key}")],
-            [InlineKeyboardButton(text="🔙 Назад", callback_data=f"back_{SECTION_IDS[section]}")]
-        ]
-    )
-
-    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="Markdown")
-    await callback.answer()
-
-# ========== 11. ДОБАВЛЕНИЕ В КОРЗИНУ ==========
-@dp.callback_query(F.data.startswith("add_"))
-async def add_to_basket(callback: types.CallbackQuery):
-    key = callback.data.replace("add_", "")
+# ========== 10. ОФОРМЛЕНИЕ ЗАКАЗА ==========
+@dp.callback_query(F.data == "checkout")
+async def checkout(callback: types.CallbackQuery):
     user_id = callback.from_user.id
-
-    if user_id not in baskets:
-        baskets[user_id] = []
-
-    baskets[user_id].append(key)
-
-    price = 0
-    full_name = key
-    for section, services in SERVICES.items():
-        if key in services:
-            price = services[key]["price"]
-            full_name = services[key].get("full_name", key)
-            break
-
-    basket_names = get_basket_names(user_id)
-    basket_list_text = "\n".join(f"• {name}" for name in basket_names)
-
-    await callback.message.answer(
-        f"✅ Добавлено: *{full_name}*\n💰 {price} руб.\n\n"
-        f"🛒 *В корзине:*\n{basket_list_text}\n\n"
-        f"Сумма: {sum_price(user_id)} руб.",
-        reply_markup=main_keyboard(),
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-def sum_price(user_id):
-    total = 0
-    for key in baskets.get(user_id, []):
-        for section, services in SERVICES.items():
-            if key in services:
-                total += services[key]["price"]
-                break
-    return total
-
-def get_basket_names(user_id):
-    names = []
-    for key in baskets.get(user_id, []):
-        for section, services in SERVICES.items():
-            if key in services:
-                names.append(services[key].get("full_name", key))
-                break
-    return names
-
-# ========== 12. НАЗАД ==========
-@dp.callback_query(F.data.startswith("back_"))
-async def back_to_services(callback: types.CallbackQuery, state: FSMContext):
-    section_id = callback.data.replace("back_", "")
-    section = SECTION_NAMES.get(section_id)
-    services = SERVICES.get(section, {})
-
-    if not services:
-        await callback.answer("Раздел не найден")
-        return
-
-    keyboard_buttons = []
-    for key, data in services.items():
-        button_text = data.get("full_name", key)
-        keyboard_buttons.append([InlineKeyboardButton(text=button_text, callback_data=f"svc_{key}")])
-
-    keyboard = InlineKeyboardMarkup(inline_keyboard=keyboard_buttons)
-
-    await callback.message.edit_text(
-        f"📂 *{section}*\nВыберите услугу:",
-        reply_markup=keyboard,
-        parse_mode="Markdown"
-    )
-    await callback.answer()
-
-# ========== 13. КОРЗИНА ==========
-@dp.message(F.text == "🛒 Моя корзина")
-async def show_basket(message: types.Message):
-    user_id = message.from_user.id
     basket = baskets.get(user_id, [])
 
     if not basket:
-        await message.answer("🛒 Корзина пуста.", reply_markup=main_keyboard())
+        await callback.message.answer("🛒 Корзина пуста.", reply_markup=main_keyboard())
+        await callback.answer()
         return
 
-    text = "🛒 *Ваша корзина:*\n\n"
+    # Формируем текст заказа
+    text = "🛒 *Новый заказ!*\n\n"
+    text += f"👤 Клиент: {callback.from_user.first_name} (@{callback.from_user.username or 'без юзернейма'})\n"
+    text += f"🆔 ID: {user_id}\n\n"
+    text += "📋 *Услуги:*\n"
+
     total = 0
     for key in basket:
         for section, services in SERVICES.items():
@@ -365,49 +224,101 @@ async def show_basket(message: types.Message):
                 text += f"• {full_name} — {price} руб.\n"
                 break
 
-    text += f"\n💰 *Итого за работу: {total} руб.*"
-    text += f"\n\n⚠️ *Стоимость запчастей рассчитывается отдельно.*"
+    text += f"\n💰 *Итого: {total} руб.*"
+    text += f"\n\n⚠️ Стоимость запчастей рассчитывается отдельно."
 
+    # Кнопка "Позвонить клиенту" (для менеджера)
     keyboard = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📞 Оформить", callback_data="checkout")]
+            [InlineKeyboardButton(text="📞 Позвонить клиенту", url=f"tg://user?id={user_id}")]
         ]
     )
 
-    await message.answer(text, reply_markup=keyboard, parse_mode="Markdown")
+    # Отправляем заказ менеджеру
+    try:
+        await bot.send_message(
+            chat_id=MANAGER_ID,
+            text=text,
+            reply_markup=keyboard,
+            parse_mode="Markdown"
+        )
+        await bot.send_message(
+            chat_id=MANAGER_ID,
+            text="⚠️ *Важно:* Номер телефона клиента не привязан к Telegram. Уточните его при звонке.",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Ошибка отправки менеджеру: {e}")
 
-# ========== 14. ОЧИСТКА ==========
-@dp.message(F.text == "🧹 Очистить корзину")
-async def clear_basket(message: types.Message):
-    user_id = message.from_user.id
-    baskets[user_id] = []
-    await message.answer("🧹 Корзина очищена.", reply_markup=main_keyboard())
-
-# ========== 15. ОФОРМЛЕНИЕ ==========
-@dp.callback_query(F.data == "checkout")
-async def checkout(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    total = sum_price(user_id)
+    # Ответ клиенту
     await callback.message.answer(
         f"📞 *Спасибо за заказ!*\n\n"
         f"Сумма за работу: *{total} руб.*\n"
         f"⚠️ Стоимость запчастей рассчитывается отдельно.\n\n"
+        f"Наш менеджер свяжется с вами в ближайшее время.\n\n"
         f"📞 Телефон: {PHONE}\n"
         f"📍 Адрес: {ADDRESS}",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
+
+    # Очищаем корзину
     baskets[user_id] = []
     await callback.answer()
 
-# ========== 16. ЗАПУСК БОТА ==========
+# ========== 11. ОБРАБОТКА НОМЕРА ТЕЛЕФОНА ==========
+@dp.message(F.contact)
+async def handle_contact(message: types.Message):
+    user_id = message.from_user.id
+    contact = message.contact
+
+    # Сохраняем номер в словаре пользователя
+    if user_id not in users:
+        users[user_id] = {}
+
+    users[user_id]["phone"] = contact.phone_number
+
+    await message.answer(
+        f"✅ Спасибо! Ваш номер телефона сохранён.\n"
+        f"📞 {contact.phone_number}\n\n"
+        f"Теперь выберите услуги и оформите заказ.",
+        reply_markup=main_keyboard()
+    )
+
+    # Отправляем уведомление менеджеру, что клиент поделился номером
+    try:
+        await bot.send_message(
+            chat_id=MANAGER_ID,
+            text=f"📞 *Клиент поделился номером!*\n\n"
+                 f"👤 {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
+                 f"📞 Номер: `{contact.phone_number}`",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        print(f"Ошибка отправки уведомления: {e}")
+
+# ========== 12. АДМИН-КОМАНДЫ ==========
+@dp.message(Command("users"))
+async def list_users(message: types.Message):
+    if message.from_user.id != MANAGER_ID:
+        await message.answer("⛔ У вас нет прав.")
+        return
+
+    if not users:
+        await message.answer("📭 Нет пользователей.")
+        return
+
+    text = "👥 *Список пользователей:*\n\n"
+    for uid, data in users.items():
+        phone = data.get("phone", "не указан")
+        text += f"• {data['first_name']} (@{data['username']}) — 📞 {phone}\n"
+
+    await message.answer(text, parse_mode="Markdown")
+
+# ========== 13. ЗАПУСК ==========
 async def main():
     print("🚗 Магнат сервис бот запущен!")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    # 1. Запускаем веб-сервер в отдельном фоновом потоке
-    threading.Thread(target=run_health_check_server, daemon=True).start()
-    
-    # 2. Запускаем цикл aiogram для работы бота
     asyncio.run(main())
