@@ -225,48 +225,54 @@ async def start(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-# ========== 8. ОБРАБОТКА МЕНЮ ==========
-@dp.message(F.text)
-async def handle_menu(message: types.Message, state: FSMContext):
-    text = message.text
+@dp.message(OrderState.waiting_for_phone)
+async def process_phone(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     
-    if text in SECTION_CODES:
-        code = SECTION_CODES[text]
-        await show_section_services(message, code)
+    if message.text == "❌ Отмена оформления":
+        await state.clear()
+        await message.answer("❌ Оформление отменено.", reply_markup=main_keyboard())
         return
-            
-    if text == "🛒 Корзина":
-        await show_basket_msg(message)
-    elif text == "🗑 Очистить":
-        baskets[user_id] = []
-        await message.answer("🧹 Корзина очищена!", reply_markup=main_keyboard())
-    else:
-        await message.answer("❓ Пожалуйста, выберите раздел из меню ниже.", reply_markup=main_keyboard())
-
-# Список позиций в подразделе (без нумерации)
-async def show_section_services(message: types.Message, code: str):
-    services = SERVICES[code]
-    icon = SECTION_ICONS.get(code, "📌")
-    section_name = CODE_TO_SECTION.get(code, "Услуги")
-    
-    buttons = []
-    for key, item in services.items():
-        buttons.append([InlineKeyboardButton(
-            text=f"{item['full_name']}",  # Нумерация удалена
-            callback_data=f"view_{key}"
-        )])
         
-    buttons.append([InlineKeyboardButton(text="🔙 Назад в главное меню", callback_data="back_to_menu")])
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    user_phone = message.text
+    basket = baskets.get(user_id, [])
     
-    await message.answer(
-        f"{icon} *{section_name}*\n\n"
-        f"Выберите интересующую услугу ниже для просмотра подробностей и добавления:",
-        reply_markup=kb,
-        parse_mode="Markdown"
-    )
-
+    text = f"🛒 *Новый заказ!*\n\n"
+    text += f"👤 Клиент: {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
+    text += f"📞 Телефон: `{user_phone}`\n"
+    text += f"🆔 ID: `{user_id}`\n\n"
+    text += f"📋 *Выбранные услуги:*\n"
+    
+    total = 0
+    # ИСПРАВЛЕНО: теперь поиск идет по code, а не по section
+    for key in basket:
+        for code, services in SERVICES.items():
+            if key in services:
+                text += f"🔹 {services[key]['full_name']} — {services[key]['price']}\n"
+                total += services[key]['price_num']
+                break
+                
+    text += f"\n💰 *Итого: {total} руб.*"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📱 Открыть профиль", url=f"tg://user?id={user_id}")]
+    ])
+    
+    try:
+        await bot.send_message(chat_id=MANAGER_ID, text=text, reply_markup=kb, parse_mode="Markdown")
+        await message.answer(
+            f"✅ *Заказ успешно оформлен!*\n\n"
+            f"💰 Общая сумма: *{total} руб.*\n"
+            f"📞 Менеджер свяжется с вами по номеру `{user_phone}` в ближайшее время.",
+            reply_markup=main_keyboard(),
+            parse_mode="Markdown"
+        )
+        baskets[user_id] = []  # Очищаем корзину только при успешной отправке
+    except Exception as e:
+        logging.error(f"Ошибка при отправке заказа менеджеру: {e}")
+        await message.answer("❌ Произошла ошибка при отправке заявки. Пожалуйста, свяжитесь со СТО напрямую по телефону.", reply_markup=main_keyboard())
+        
+    await state.clear()
 # ========== 9. КАРТОЧКА ПОЗИЦИИ (ТУТ ОПИСАНИЕ) ==========
 @dp.callback_query(F.data.startswith("view_"))
 async def view_service(callback: types.CallbackQuery):
