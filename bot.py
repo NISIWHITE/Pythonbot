@@ -29,7 +29,7 @@ users = {}
 # ========== 2. БАЗА ДАННЫХ УСЛУГ ==========
 SERVICES = {
     "Техобслуживание": {
-        "t1": {"full_name": "Замена масла, масляного фильтра", "price": 30, "time": "около часа", "desc": "Замена старого, отработанного масла и грязного фильтра на свежие."},
+        "t1": {"full_name": "Замена масла, масляного фильтра", "price": 30, "time": "около часа", "desc": "Замена старого, отработанного масла и грязного фильтра."},
         "t2": {"full_name": "Замена воздушного фильтра", "price": 20, "time": "20-30 минут", "desc": "Установка нового чистого фильтра вместо забитого пылью."},
         "t3": {"full_name": "Замена салонного фильтра", "price": 20, "time": "20-40 минут", "desc": "Обновление барьера, который очищает воздух в салоне."},
         "t4": {"full_name": "Замена тормозных колодок (комплект 4шт)", "price": 40, "time": "около часа", "desc": "Установка новых колодок вместо стёртых."},
@@ -47,10 +47,10 @@ SERVICES = {
     },
     "Развал схождения": {
         "r1": {"full_name": "Регулировка развала схождения 1 оси", "price": 50, "time": "около 30 минут", "desc": "Настройка угла установки колёс на одной оси."},
-        "r2": {"full_name": "Регулировка развала схождения 2х осей", "price": 55, "time": "около 45 минут", "desc": "Настройка углов установки колёс на обеих осях."}
+        "r2": {"full_name": "Регулировка развала схождения 2х осей", "price": 55, "time": "около 45 минут", "desc": "Настройка углов установки колёс на обеих осях для идеальной управляемости."}
     },
     "Заправка кондиционера": {
-        "a1": {"full_name": "Заправка кондиционера", "price": 30, "time": "около 30 минут", "desc": "Дозаправка системы охлаждения хладагентом."},
+        "a1": {"full_name": "Заправка кондицениора", "price": 30, "time": "около 30 минут", "desc": "Дозаправка системы охлаждения хладагентом."},
         "a2": {"full_name": "Поиск утечки кондиционера", "price": 50, "time": "около часа", "desc": "Диагностика всей системы специальным оборудованием."}
     },
     "Диагностика и ремонт дизельных форсунок": {
@@ -88,7 +88,6 @@ async def start(message: types.Message, state: FSMContext):
         reply_markup=main_keyboard()
     )
 
-# Выбор категории (обычный текст)
 @dp.message(F.text.in_(SERVICES.keys()))
 async def select_section(message: types.Message):
     section = message.text
@@ -103,7 +102,6 @@ async def select_section(message: types.Message):
             reply_markup=kb, parse_mode="Markdown"
         )
 
-# Добавление в корзину
 @dp.callback_query(F.data.startswith("add_"))
 async def add_to_basket(callback: types.CallbackQuery):
     key = callback.data.split("_")[1]
@@ -113,7 +111,6 @@ async def add_to_basket(callback: types.CallbackQuery):
     baskets[user_id].append(key)
     await callback.answer("✅ Добавлено в корзину!")
 
-# Просмотр корзины
 @dp.message(F.text == "🛒 Моя корзина")
 async def show_basket(message: types.Message):
     user_id = message.from_user.id
@@ -136,13 +133,11 @@ async def show_basket(message: types.Message):
     ])
     await message.answer(text, reply_markup=kb, parse_mode="Markdown")
 
-# Очистка корзины
 @dp.message(F.text == "🧹 Очистить корзину")
 async def clear_basket(message: types.Message):
     baskets[message.from_user.id] = []
     await message.answer("🧹 Корзина полностью очищена.", reply_markup=main_keyboard())
 
-# Оформление заказа
 @dp.callback_query(F.data == "checkout")
 async def checkout(callback: types.CallbackQuery):
     user_id = callback.from_user.id
