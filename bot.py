@@ -13,7 +13,7 @@ from aiogram.fsm.context import FSMContext
 logging.basicConfig(level=logging.INFO)
 
 # ========== 1. НАСТРОЙКИ И ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ==========
-BOT_TOKEN = os.getenv(8999270734:AAHfpk2XBynYvzU_3EqeduWhcdSGKsUTRxQ)
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
 # Маршруты для Telegram Вебхука
