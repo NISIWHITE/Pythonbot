@@ -2,6 +2,7 @@ import os
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
+from datetime import datetime
 
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
@@ -13,7 +14,9 @@ from aiogram.fsm.state import State, StatesGroup
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# ========== 1. НАСТРОЙКИ ==========
+# ============================================================
+# 1. НАСТРОЙКИ
+# ============================================================
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
@@ -24,10 +27,32 @@ MANAGER_ID = 8967378534
 PHONE = "+375 29 888 4777"
 ADDRESS = "г. Минск, ул. Меньковский тракт 5"
 
-# Глобальный словарь для хранения корзин пользователей
-baskets = {}
+# ============================================================
+# 2. ХРАНЕНИЕ ДАННЫХ
+# ============================================================
+baskets = {}       # {user_id: [service_keys]}
+profiles = {}      # {user_id: {"name": "", "car_brand": "", "car_model": "", ...}}
+orders_history = {} # {user_id: [{"date": "", "services": [], "total": 0}]}
 
-# Четкое сопоставление текста на кнопках с внутренними кодами
+# ============================================================
+# 3. СОСТОЯНИЯ (FSM)
+# ============================================================
+class ProfileState(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_car_brand = State()
+    waiting_for_car_model = State()
+    waiting_for_car_year = State()
+    waiting_for_vin = State()
+    waiting_for_plate = State()
+    waiting_for_edit_choice = State()
+    waiting_for_edit_value = State()
+
+class OrderState(StatesGroup):
+    waiting_for_phone = State()
+
+# ============================================================
+# 4. МЕНЮ И РАЗДЕЛЫ
+# ============================================================
 SECTION_MAP = {
     "🔧 Техобслуживание": "tech",
     "💻 Компьютерная диагностика": "comp",
@@ -50,7 +75,9 @@ SECTION_ICONS = {
     "tech": "🔧", "comp": "💻", "susp": "🛞", "wheel": "📐", "ac": "❄️", "diesel": "⛽"
 }
 
-# ========== 3. СТРУКТУРА УСЛУГ ==========
+# ============================================================
+# 5. УСЛУГИ
+# ============================================================
 SERVICES = {
     "tech": {
         "t1": {"full_name": "Замена масла и масляного фильтра", "price": "30 руб.", "price_num": 30, "time": "около часа", "desc": "Замена старого, отработанного масла и грязного фильтра на свежие."},
@@ -86,27 +113,28 @@ SERVICES = {
     }
 }
 
-# ========== 4. СОСТОЯНИЯ (FSM) ==========
-class OrderState(StatesGroup):
-    waiting_for_phone = State()
-
+# ============================================================
+# 6. ИНИЦИАЛИЗАЦИЯ БОТА
+# ============================================================
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-# ========== 5. ГЛАВНОЕ МЕНЮ ==========
+# ============================================================
+# 7. ГЛАВНОЕ МЕНЮ
+# ============================================================
 def main_keyboard():
     buttons = [[KeyboardButton(text=text)] for text in SECTION_MAP.keys()]
     buttons.append([KeyboardButton(text="🛒 Корзина"), KeyboardButton(text="🗑 Очистить")])
+    buttons.append([KeyboardButton(text="📞 Поделиться номером", request_contact=True)])
+    buttons.append([KeyboardButton(text="👤 Мой профиль")])
+    buttons.append([KeyboardButton(text="📜 Мои заказы")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-# ========== 6. КОМАНДА /start ==========
-@dp.message(Command("start"))
-async def start(message: types.Message, state: FSMContext):
+async def show_main_menu(message: types.Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
     if user_id not in baskets:
         baskets[user_id] = []
-        
     await message.answer(
         f"🖐️ *Добро пожаловать в Магнат Сервис!*\n\n"
         f"🚗 Я помогу вам рассчитать стоимость ремонта вашего авто.\n\n"
@@ -117,86 +145,257 @@ async def start(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
 
-# ========== 7. ОБРАБОТЧИК ТЕЛЕФОНА (СТАВИМ ПЕРВЫМ!) ==========
-@dp.message(OrderState.waiting_for_phone)
-async def process_phone(message: types.Message, state: FSMContext):
+# ============================================================
+# 8. /start — СОЗДАНИЕ ПРОФИЛЯ
+# ============================================================
+@dp.message(Command("start"))
+async def start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     
-    # Обработка отмены
-    if message.text == "❌ Отмена":
-        await state.clear()
-        await message.answer("❌ Оформление отменено.", reply_markup=main_keyboard())
-        return
-        
-    # Проверяем, что введен номер телефона
-    if not message.text or len(message.text) < 5:
-        await message.answer("❌ Пожалуйста, введите корректный номер телефона (например, +37529XXXXXXX)")
-        return
-        
-    user_phone = message.text
-    basket = baskets.get(user_id, [])
+    if user_id not in baskets:
+        baskets[user_id] = []
     
-    if not basket:
-        await message.answer("❌ Ваша корзина пуста. Оформление отменено.", reply_markup=main_keyboard())
-        await state.clear()
-        return
-    
-    text = f"🛒 *Новый заказ!*\n\n"
-    text += f"👤 Клиент: {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
-    text += f"📞 Телефон: `{user_phone}`\n"
-    text += f"🆔 ID: `{user_id}`\n\n"
-    text += f"📋 *Выбранные услуги:*\n"
-    
-    total = 0
-    for key in basket:
-        for code, services in SERVICES.items():
-            if key in services:
-                text += f"🔹 {services[key]['full_name']} — {services[key]['price']}\n"
-                total += services[key]['price_num']
-                break
-                
-    text += f"\n💰 *Итого: {total} руб.*"
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📱 Открыть профиль", url=f"tg://user?id={user_id}")]
-    ])
-    
-    try:
-        await bot.send_message(chat_id=MANAGER_ID, text=text, reply_markup=kb, parse_mode="Markdown")
+    if user_id not in profiles:
         await message.answer(
-            f"✅ *Заказ успешно оформлен!*\n\n"
-            f"💰 Общая сумма: *{total} руб.*\n"
-            f"📞 Менеджер свяжется с вами по номеру `{user_phone}` в ближайшее время.",
-            reply_markup=main_keyboard(),
+            f"🖐️ *Добро пожаловать в Магнат Сервис!*\n\n"
+            f"Давайте познакомимся! Я создам ваш профиль.\n\n"
+            f"✏️ *Введите ваше имя:*",
             parse_mode="Markdown"
         )
-        baskets[user_id] = []
-    except Exception as e:
-        logging.error(f"Ошибка при отправке заказа менеджеру: {e}")
-        await message.answer(
-            "❌ Произошла ошибка при отправке заявки. Пожалуйста, свяжитесь со СТО напрямую по телефону.",
-            reply_markup=main_keyboard()
-        )
-        
-    await state.clear()
+        await state.set_state(ProfileState.waiting_for_name)
+        return
+    
+    await show_main_menu(message, state)
 
-# ========== 8. ОБРАБОТКА МЕНЮ ==========
+# ============================================================
+# 9. ЗАПОЛНЕНИЕ ПРОФИЛЯ
+# ============================================================
+@dp.message(ProfileState.waiting_for_name)
+async def process_name(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if user_id not in profiles:
+        profiles[user_id] = {}
+    profiles[user_id]["name"] = message.text
+    
+    await message.answer(
+        f"✅ Отлично, {message.text}!\n\n"
+        f"🚗 *Теперь укажите марку вашего автомобиля:*\n"
+        f"(например, Toyota, BMW, Volkswagen)",
+        parse_mode="Markdown"
+    )
+    await state.set_state(ProfileState.waiting_for_car_brand)
+
+@dp.message(ProfileState.waiting_for_car_brand)
+async def process_car_brand(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    profiles[user_id]["car_brand"] = message.text
+    
+    await message.answer(
+        f"✅ Марка: {message.text}\n\n"
+        f"📐 *Теперь введите модель автомобиля:*\n"
+        f"(например, Camry, X5, Golf)",
+        parse_mode="Markdown"
+    )
+    await state.set_state(ProfileState.waiting_for_car_model)
+
+@dp.message(ProfileState.waiting_for_car_model)
+async def process_car_model(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    profiles[user_id]["car_model"] = message.text
+    
+    await message.answer(
+        f"✅ Модель: {message.text}\n\n"
+        f"📅 *Введите год выпуска автомобиля:*\n"
+        f"(например, 2020)",
+        parse_mode="Markdown"
+    )
+    await state.set_state(ProfileState.waiting_for_car_year)
+
+@dp.message(ProfileState.waiting_for_car_year)
+async def process_car_year(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    profiles[user_id]["car_year"] = message.text
+    
+    await message.answer(
+        f"✅ Год: {message.text}\n\n"
+        f"🔢 *Введите VIN номер автомобиля:*\n"
+        f"(можно пропустить, нажав /skip)",
+        parse_mode="Markdown"
+    )
+    await state.set_state(ProfileState.waiting_for_vin)
+
+@dp.message(ProfileState.waiting_for_vin)
+async def process_vin(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if message.text == "/skip":
+        profiles[user_id]["vin"] = "не указан"
+    else:
+        profiles[user_id]["vin"] = message.text
+    
+    await message.answer(
+        f"✅ VIN: {profiles[user_id]['vin']}\n\n"
+        f"🔢 *Введите государственный номер автомобиля:*\n"
+        f"(можно пропустить, нажав /skip)",
+        parse_mode="Markdown"
+    )
+    await state.set_state(ProfileState.waiting_for_plate)
+
+@dp.message(ProfileState.waiting_for_plate)
+async def process_plate(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if message.text == "/skip":
+        profiles[user_id]["plate"] = "не указан"
+    else:
+        profiles[user_id]["plate"] = message.text
+    
+    if "phone" not in profiles[user_id]:
+        profiles[user_id]["phone"] = "не указан"
+    
+    profile_text = (
+        f"✅ *Профиль создан!*\n\n"
+        f"👤 Имя: {profiles[user_id].get('name', 'не указано')}\n"
+        f"🚗 Марка: {profiles[user_id].get('car_brand', 'не указана')}\n"
+        f"📐 Модель: {profiles[user_id].get('car_model', 'не указана')}\n"
+        f"📅 Год: {profiles[user_id].get('car_year', 'не указан')}\n"
+        f"🔢 VIN: {profiles[user_id].get('vin', 'не указан')}\n"
+        f"🔢 Госномер: {profiles[user_id].get('plate', 'не указан')}\n\n"
+        f"📞 Если хотите указать телефон — нажмите кнопку '📞 Поделиться номером' в меню."
+    )
+    
+    await message.answer(profile_text, parse_mode="Markdown")
+    await state.clear()
+    await show_main_menu(message, state)
+
+# ============================================================
+# 10. ПРОФИЛЬ
+# ============================================================
+@dp.message(Command("profile"))
+async def show_profile(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in profiles:
+        await message.answer("❌ Профиль не найден. Напишите /start, чтобы создать его.")
+        return
+    
+    profile_text = (
+        f"👤 *Ваш профиль:*\n\n"
+        f"👤 Имя: {profiles[user_id].get('name', 'не указано')}\n"
+        f"🚗 Марка: {profiles[user_id].get('car_brand', 'не указана')}\n"
+        f"📐 Модель: {profiles[user_id].get('car_model', 'не указана')}\n"
+        f"📅 Год: {profiles[user_id].get('car_year', 'не указан')}\n"
+        f"🔢 VIN: {profiles[user_id].get('vin', 'не указан')}\n"
+        f"🔢 Госномер: {profiles[user_id].get('plate', 'не указан')}\n"
+        f"📞 Телефон: {profiles[user_id].get('phone', 'не указан')}\n\n"
+        f"📜 Заказов: {len(orders_history.get(user_id, []))}\n\n"
+        f"Для изменения данных нажмите '✏️ Редактировать профиль' в меню"
+    )
+    await message.answer(profile_text, parse_mode="Markdown")
+
+@dp.message(F.text == "👤 Мой профиль")
+async def profile_button(message: types.Message):
+    await show_profile(message)
+
+@dp.message(F.text == "✏️ Редактировать профиль")
+async def edit_profile_button(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if user_id not in profiles:
+        await message.answer("❌ Профиль не найден. Напишите /start, чтобы создать его.")
+        return
+    
+    kb = ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="✏️ Изменить имя")],
+            [KeyboardButton(text="✏️ Изменить марку")],
+            [KeyboardButton(text="✏️ Изменить модель")],
+            [KeyboardButton(text="✏️ Изменить год")],
+            [KeyboardButton(text="✏️ Изменить VIN")],
+            [KeyboardButton(text="✏️ Изменить госномер")],
+            [KeyboardButton(text="🔙 Назад в меню")]
+        ],
+        resize_keyboard=True
+    )
+    await message.answer("✏️ Что хотите изменить?", reply_markup=kb)
+    await state.set_state(ProfileState.waiting_for_edit_choice)
+
+@dp.message(ProfileState.waiting_for_edit_choice)
+async def process_edit_choice(message: types.Message, state: FSMContext):
+    field_map = {
+        "✏️ Изменить имя": "name",
+        "✏️ Изменить марку": "car_brand",
+        "✏️ Изменить модель": "car_model",
+        "✏️ Изменить год": "car_year",
+        "✏️ Изменить VIN": "vin",
+        "✏️ Изменить госномер": "plate"
+    }
+    
+    if message.text == "🔙 Назад в меню":
+        await state.clear()
+        await show_main_menu(message, state)
+        return
+    
+    if message.text in field_map:
+        await state.update_data(edit_field=field_map[message.text])
+        await message.answer(
+            f"✏️ Введите новое значение для *{message.text.replace('✏️ Изменить ', '')}*:",
+            parse_mode="Markdown"
+        )
+        await state.set_state(ProfileState.waiting_for_edit_value)
+
+@dp.message(ProfileState.waiting_for_edit_value)
+async def process_edit_value(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    data = await state.get_data()
+    field = data.get("edit_field")
+    
+    if field:
+        profiles[user_id][field] = message.text
+        await message.answer(f"✅ Поле успешно обновлено!")
+    
+    await state.clear()
+    await show_profile(message)
+
+# ============================================================
+# 11. ИСТОРИЯ ЗАКАЗОВ
+# ============================================================
+@dp.message(F.text == "📜 Мои заказы")
+async def show_orders_button(message: types.Message):
+    await show_orders(message)
+
+@dp.message(Command("orders"))
+async def show_orders(message: types.Message):
+    user_id = message.from_user.id
+    orders = orders_history.get(user_id, [])
+    
+    if not orders:
+        await message.answer("📭 У вас пока нет заказов.", reply_markup=main_keyboard())
+        return
+    
+    text = f"📜 *Ваши заказы:*\n\n"
+    for i, order in enumerate(reversed(orders[-5:]), 1):
+        text += f"{i}. {order['date']} — {order['total']} руб.\n"
+        text += f"   Услуг: {len(order['services'])}\n"
+    
+    text += f"\nВсего заказов: {len(orders)}"
+    await message.answer(text, parse_mode="Markdown", reply_markup=main_keyboard())
+
+# ============================================================
+# 12. ОБРАБОТКА МЕНЮ
+# ============================================================
 @dp.message(F.text)
 async def handle_menu(message: types.Message, state: FSMContext):
-    # Проверяем, не находится ли пользователь в состоянии оформления заказа
     current_state = await state.get_state()
+    if current_state and current_state.startswith("ProfileState:"):
+        return
     if current_state == OrderState.waiting_for_phone:
-        return  # Игнорируем, если ждём номер
+        return
     
     text = message.text
     user_id = message.from_user.id
     
-    # Проверяем, нажал ли пользователь на категорию услуг
     if text in SECTION_MAP:
         code = SECTION_MAP[text]
         await show_section_services(message, code)
         return
-            
+    
     if text == "🛒 Корзина":
         await show_basket_msg(message)
     elif text == "🗑 Очистить":
@@ -205,7 +404,6 @@ async def handle_menu(message: types.Message, state: FSMContext):
     else:
         await message.answer("❓ Пожалуйста, выберите раздел из меню ниже.", reply_markup=main_keyboard())
 
-# Список позиций в подразделе
 async def show_section_services(message: types.Message, code: str):
     services = SERVICES[code]
     icon = SECTION_ICONS.get(code, "📌")
@@ -214,18 +412,19 @@ async def show_section_services(message: types.Message, code: str):
     buttons = []
     for key, item in services.items():
         buttons.append([InlineKeyboardButton(text=item['full_name'], callback_data=f"view_{key}")])
-        
+    
     buttons.append([InlineKeyboardButton(text="🔙 Назад в главное меню", callback_data="back_to_menu")])
     kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     
     await message.answer(
-        f"{icon} *{section_name}*\n\n"
-        f"Выберите интересующую услугу ниже для просмотра подробностей:",
+        f"{icon} *{section_name}*\n\nВыберите интересующую услугу ниже для просмотра подробностей:",
         reply_markup=kb,
         parse_mode="Markdown"
     )
 
-# ========== 9. КАРТОЧКА ПОЗИЦИИ ==========
+# ============================================================
+# 13. КАРТОЧКА УСЛУГИ
+# ============================================================
 @dp.callback_query(F.data.startswith("view_"))
 async def view_service(callback: types.CallbackQuery):
     key = callback.data.split("_")[1]
@@ -237,11 +436,11 @@ async def view_service(callback: types.CallbackQuery):
             found_item = services[key]
             found_code = code
             break
-            
+    
     if not found_item:
         await callback.answer("Услуга не найдена.")
         return
-        
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Добавить в 🛒", callback_data=f"add_{key}")],
         [InlineKeyboardButton(text="🔙 Назад к списку", callback_data=f"sect_{found_code}")]
@@ -258,181 +457,4 @@ async def view_service(callback: types.CallbackQuery):
     )
     await callback.answer()
 
-# ========== 10. ДОБАВЛЕНИЕ В КОРЗИНУ ==========
-@dp.callback_query(F.data.startswith("add_"))
-async def add_to_basket(callback: types.CallbackQuery):
-    key = callback.data.split("_")[1]
-    user_id = callback.from_user.id
-    
-    if user_id not in baskets:
-        baskets[user_id] = []
-        
-    baskets[user_id].append(key)
-    
-    service_name = ""
-    found_code = ""
-    for code, services in SERVICES.items():
-        if key in services:
-            service_name = services[key]['full_name']
-            found_code = code
-            break
-            
-    total = sum_price(user_id)
-    
-    await callback.answer(f"✅ Добавлено!")
-    await callback.message.edit_text(
-        f"✅ Услуга *«{service_name}»* добавлена в корзину!\n\n"
-        f"📦 Всего в корзине: {len(baskets[user_id])} поз.\n"
-        f"💰 Общая сумма: {total} руб.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="go_to_basket")],
-            [InlineKeyboardButton(text="🔙 К списку услуг", callback_data=f"sect_{found_code}")]
-        ]),
-        parse_mode="Markdown"
-    )
-
-def sum_price(user_id):
-    total = 0
-    for key in baskets.get(user_id, []):
-        for code, services in SERVICES.items():
-            if key in services:
-                total += services[key]['price_num']
-                break
-    return total
-
-# ========== 11. КНОПКИ НАЗАД ==========
-@dp.callback_query(F.data.startswith("sect_"))
-async def back_to_section(callback: types.CallbackQuery):
-    code = callback.data.split("_")[1]
-    await show_section_services(callback.message, code)
-    await callback.answer()
-
-@dp.callback_query(F.data == "back_to_menu")
-async def back_to_menu(callback: types.CallbackQuery):
-    await callback.message.delete()
-    await callback.message.answer("📋 Выберите раздел услуг:", reply_markup=main_keyboard())
-    await callback.answer()
-
-# ========== 12. КОРЗИНА ==========
-@dp.callback_query(F.data == "go_to_basket")
-async def go_to_basket_callback(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    basket = baskets.get(user_id, [])
-    
-    if not basket:
-        await callback.message.edit_text("🛒 Ваша корзина пуста. Выберите услуги в меню!")
-        await callback.answer()
-        return
-        
-    text = "🛒 *Ваша корзина (выбранные услуги):*\n\n"
-    total = 0
-    for key in basket:
-        for code, services in SERVICES.items():
-            if key in services:
-                item = services[key]
-                text += f"🔹 *{item['full_name']}*\n"
-                text += f"📝 {item['desc']}\n"
-                text += f"⏱️ _Время:_ {item['time']}\n"
-                text += f"💰 _Цена работы:_ {item['price']}\n"
-                text += "—" * 15 + "\n"
-                total += item['price_num']
-                break
-                
-    text += f"\n💰 *Итого ориентировочно: {total} руб.*"
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="start_checkout")],
-        [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="clear_basket")]
-    ])
-    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
-    await callback.answer()
-
-async def show_basket_msg(message: types.Message):
-    user_id = message.from_user.id
-    basket = baskets.get(user_id, [])
-    
-    if not basket:
-        await message.answer("🛒 Ваша корзина пуста. Выберите услуги в меню!", reply_markup=main_keyboard())
-        return
-        
-    text = "🛒 *Ваша корзина (выбранные услуги):*\n\n"
-    total = 0
-    for key in basket:
-        for code, services in SERVICES.items():
-            if key in services:
-                item = services[key]
-                text += f"🔹 *{item['full_name']}*\n"
-                text += f"📝 {item['desc']}\n"
-                text += f"⏱️ _Время:_ {item['time']}\n"
-                text += f"💰 _Цена работы:_ {item['price']}\n"
-                text += "—" * 15 + "\n"
-                total += item['price_num']
-                break
-                
-    text += f"\n💰 *Итого ориентировочно: {total} руб.*"
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="start_checkout")],
-        [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="clear_basket")]
-    ])
-    await message.answer(text, reply_markup=kb, parse_mode="Markdown")
-
-@dp.callback_query(F.data == "clear_basket")
-async def clear_basket_callback(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    baskets[user_id] = []
-    await callback.message.edit_text("🧹 Корзина очищена!")
-    await callback.message.answer("📋 Выберите раздел:", reply_markup=main_keyboard())
-    await callback.answer()
-
-# ========== 13. ОФОРМЛЕНИЕ ЗАКАЗА ==========
-@dp.callback_query(F.data == "start_checkout")
-async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
-    user_id = callback.from_user.id
-    if not baskets.get(user_id, []):
-        await callback.answer("Ваша корзина пуста.")
-        return
-        
-    cancel_kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="❌ Отмена")]], 
-        resize_keyboard=True
-    )
-    
-    await callback.message.answer(
-        "📱 Пожалуйста, введите ваш *номер телефона* текстом (например, +37529XXXXXXX), "
-        "чтобы наш менеджер мог с вами связаться:",
-        reply_markup=cancel_kb,
-        parse_mode="Markdown"
-    )
-    await state.set_state(OrderState.waiting_for_phone)
-    await callback.answer()
-
-# ========== 14. FASTAPI СЕРВЕР ==========
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    logging.info(f"Ставим Вебхук: {WEBHOOK_URL}")
-    await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
-    yield
-    await bot.delete_webhook()
-    await bot.session.close()
-
-app = FastAPI(lifespan=lifespan)
-
-@app.get("/")
-async def root():
-    return {"status": "working", "message": "Магнат Сервис Бот работает!"}
-
-@app.head("/")
-async def root_head():
-    return Response(status_code=200)
-
-@app.post(WEBHOOK_PATH)
-async def webhook(request: Request):
-    try:
-        data = await request.json()
-        update = types.Update.model_validate(data, context={"bot": bot})
-        await dp.feed_update(bot, update)
-        return Response(status_code=200)
-    except Exception as e:
-        logging.error(f"Ошибка вебхука: {e}")
-        return Response(status_code=500)
+# ===========================================================
