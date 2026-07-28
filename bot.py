@@ -458,3 +458,76 @@ async def view_service(callback: types.CallbackQuery):
     await callback.answer()
 
 # ===========================================================
+# ========== ДОПИШИ ЭТО В САМЫЙ КОНЕЦ ФАЙЛА bot.py ==========
+
+# Вспомогательная функция для подсчета суммы (нужна для корзины)
+def sum_price(user_id):
+    total = 0
+    for key in baskets.get(user_id, []):
+        for code, services in SERVICES.items():
+            if key in services:
+                total += services[key]['price_num']
+                break
+    return total
+
+# Функция для отображения сообщения корзины
+async def show_basket_msg(message: types.Message):
+    user_id = message.from_user.id
+    basket = baskets.get(user_id, [])
+    
+    if not basket:
+        await message.answer("🛒 Ваша корзина пуста. Выберите услуги в меню!", reply_markup=main_keyboard())
+        return
+        
+    text = "🛒 *Ваша корзина (выбранные услуги):*\n\n"
+    total = 0
+    for key in basket:
+        for code, services in SERVICES.items():
+            if key in services:
+                item = services[key]
+                text += f"🔹 *{item['full_name']}*\n"
+                text += f"📝 {item['desc']}\n"
+                text += f"⏱️ _Время:_ {item['time']}\n"
+                text += f"💰 _Цена работы:_ {item['price']}\n"
+                text += "—" * 15 + "\n"
+                total += item['price_num']
+                break
+                
+    text += f"\n💰 *Итого ориентировочно: {total} руб.*"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="start_checkout")],
+        [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="clear_basket")]
+    ])
+    await message.answer(text, reply_markup=kb, parse_mode="Markdown")
+
+# Настройка жизненного цикла FastAPI (Lifespan)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logging.info(f"Ставим Вебхук: {WEBHOOK_URL}")
+    await bot.set_webhook(url=WEBHOOK_URL, drop_pending_updates=True)
+    yield
+    await bot.delete_webhook()
+    await bot.session.close()
+
+# ВОТ ЭТА ПЕРЕМЕННАЯ, КОТОРУЮ ИЩЕТ RENDER:
+app = FastAPI(lifespan=lifespan)
+
+@app.get("/")
+async def root():
+    return {"status": "working", "message": "Магнат Сервис Бот работает!"}
+
+@app.head("/")
+async def root_head():
+    return Response(status_code=200)
+
+@app.post(WEBHOOK_PATH)
+async def webhook(request: Request):
+    try:
+        data = await request.json()
+        update = types.Update.model_validate(data, context={"bot": bot})
+        await dp.feed_update(bot, update)
+        return Response(status_code=200)
+    except Exception as e:
+        logging.error(f"Ошибка вебхука: {e}")
+        return Response(status_code=500)
