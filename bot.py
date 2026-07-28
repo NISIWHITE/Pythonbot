@@ -1,247 +1,369 @@
 import os
 import logging
 from contextlib import asynccontextmanager
-from aiogram import Bot, Dispatcher, types
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
 from fastapi import FastAPI, Request, Response
 
-# Включаем логирование
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.filters import Command
+from aiogram import F
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+
+# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 
-# ============================================================
-# 1. НАСТРОЙКИ И КОНСТАНТЫ
-# ============================================================
+# ========== 1. НАСТРОЙКИ ==========
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-RENDER_EXTERNAL_URL = "https://pythonbot-7nyc.onrender.com"
+RENDER_EXTERNAL_URL = os.getenv("RENDER_EXTERNAL_URL")
 
+# Используем динамический путь, чтобы FastAPI не спотыкался об символы токена
 WEBHOOK_PATH = f"/webhook/{BOT_TOKEN}"
 WEBHOOK_URL = f"{RENDER_EXTERNAL_URL}{WEBHOOK_PATH}"
 
-# Ссылки на социальные сети и сайт
+MANAGER_ID = 8967378534
+PHONE = "+375 29 888 4777"
+ADDRESS = "г. Минск, ул. Меньковский тракт 5"
+
+# Ссылки на социальные сети
 TIKTOK_URL = "https://www.tiktok.com/@magnatservice?_r=1&_t=ZS-98BrfZbrF33"
 INSTAGRAM_URL = "https://www.instagram.com/autoservice_magnat"
 WEBSITE_URL = "https://stomagnat.by/"
 
-# Инициализация бота и диспетчера
-bot = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(storage=storage)
-
-# Временные базы данных в оперативной памяти
-profiles = {}
+# Глобальный словарь для хранения корзин пользователей
 baskets = {}
 
-# Данные об услугах (Прайс-лист)
+# Четкое сопоставление текста на кнопках с внутренними кодами
+SECTION_MAP = {
+    "🔧 Техобслуживание": "tech",
+    "💻 Компьютерная диагностика": "comp",
+    "🛞 Диагностика и ремонт подвески": "susp",
+    "📐 Развал схождения": "wheel",
+    "❄️ Заправка кондиционера": "ac",
+    "⛽ Диагностика и ремонт дизельных форсунок": "diesel"
+}
+
+CODE_TO_NAME = {
+    "tech": "Техобслуживание",
+    "comp": "Компьютерная диагностика",
+    "susp": "Диагностика и ремонт подвески",
+    "wheel": "Развал схождения",
+    "ac": "Заправка кондиционера",
+    "diesel": "Диагностика и ремонт дизельных форсунок"
+}
+
+SECTION_ICONS = {
+    "tech": "🔧", "comp": "💻", "susp": "🛞", "wheel": "📐", "ac": "❄️", "diesel": "⛽"
+}
+
+# ========== 3. СТРУКТУРА УСЛУГ ==========
 SERVICES = {
-    "tech_maintenance": {
-        "oil_change": {"full_name": "Замена масла в двигателе", "desc": "Включает слив старого масла, замену фильтра и залив нового.", "time": "30-40 мин", "price": "от 30 руб.", "price_num": 30},
-        "filters_change": {"full_name": "Замена фильтров (воздушный, салонный)", "desc": "Рекомендуется менять каждые 10 000 км.", "time": "20 мин", "price": "от 15 руб.", "price_num": 15},
+    "tech": {
+        "t1": {"full_name": "Замена масла и масляного фильтра", "price": "30 руб.", "price_num": 30, "time": "около часа", "desc": "Замена старого, отработанного масла и грязного фильтра на свежие."},
+        "t2": {"full_name": "Замена воздушного фильтра", "price": "20 руб.", "price_num": 20, "time": "около 20-30 минут", "desc": "Установка нового чистого фильтра вместо забитого пылью."},
+        "t3": {"full_name": "Замена салонного фильтра", "price": "20 руб.", "price_num": 20, "time": "около 20-40 минут", "desc": "Обновление барьера, который очищает воздух в салоне."},
+        "t4": {"full_name": "Замена тормозных колодок", "price": "40 руб.", "price_num": 40, "time": "около часа", "desc": "Установка новых колодок вместо стёртых."},
+        "t5": {"full_name": "Замена тормозных дисков", "price": "70 руб.", "price_num": 70, "time": "около часа", "desc": "Установка новых дисков взамен изношенных."}
     },
-    "brake_system": {
-        "pads_replacement": {"full_name": "Замена тормозных колодок", "desc": "Обеспечивает безопасность торможения.", "time": "40-50 мин", "price": "от 40 руб.", "price_num": 40},
-        "discs_replacement": {"full_name": "Замена тормозных дисков", "desc": "Выполняется при износе или деформации дисков.", "time": "1-1.5 часа", "price": "от 70 руб.", "price_num": 70},
+    "comp": {
+        "c1": {"full_name": "Диагностика ЭСУД", "price": "40 руб.", "price_num": 40, "time": "около 40 минут", "desc": "Компьютерная проверка всех электронных систем двигателя."},
+        "c2": {"full_name": "Сброс ошибок", "price": "30 руб.", "price_num": 30, "time": "около 30 минут", "desc": "Очистка памяти бортового компьютера от кодов неисправностей после ремонта."}
+    },
+    "susp": {
+        "p1": {"full_name": "Осмотр элементов подвески", "price": "20 руб.", "price_num": 20, "time": "около 30 минут", "desc": "Визуальная и механическая проверка элементов подвески на износ."},
+        "p2": {"full_name": "Замена рычагов подвески", "price": "от 50 руб.", "price_num": 50, "time": "от 1 часа", "desc": "Профессиональный демонтаж старых поврежденных рычагов и установка новых."},
+        "p3": {"full_name": "Замена сайлентблоков на снятом рычаге", "price": "15 руб.", "price_num": 15, "time": "около 40 минут", "desc": "Качественная выпрессовка старых и запрессовка новых элементов."},
+        "p4": {"full_name": "Замена балочных сайлентблоков", "price": "от 120 руб.", "price_num": 120, "time": "около 1.5 часов", "desc": "Замена сайлентблоков задней или передней балки автомобиля."},
+        # Новые позиции по подшипникам:
+        "p5": {"full_name": "Замена ступичного подшипника (Задняя ось)", "price": "от 80 руб.", "price_num": 80, "time": "по запросу", "desc": "Цена на замену ступичного подшипника может меняться в зависимости от автомобиля и от состояния элементов при демонтаже."},
+        "p6": {"full_name": "Замена ступичного подшипника (Передняя ось)", "price": "от 120 руб.", "price_num": 120, "time": "по запросу", "desc": "Цена на замену ступичного подшипника может меняться в зависимости от автомобиля и от состояния элементов при демонтаже."}
+    },
+    "wheel": {
+        "r1": {"full_name": "Регулировка развала схождения 1 оси", "price": "50 руб.", "price_num": 50, "time": "около 30 минут (живая очередь)", "desc": "Настройка углов установки колёс, чтобы машина ехала строго прямо."},
+        "r2": {"full_name": "Регулировка развала схождения 2х осей", "price": "55 руб.", "price_num": 55, "time": "около 45 минут (живая очередь)", "desc": "Полная настройка передней и задней оси автомобиля."}
+    },
+    "ac": {
+        "a1": {"full_name": "Заправка кондиционера", "price": "30 руб.", "price_num": 30, "time": "около 30 минут", "desc": "Дозаправка системы охлаждения хладагентом взамен утерянного за сезон."},
+        "a2": {"full_name": "Поиск утечки кондиционера", "price": "50 руб.", "price_num": 50, "time": "около часа", "desc": "Диагностика всей системы специальным оборудованием и УФ-фонариком."}
+    },
+    "diesel": {
+        "f1": {"full_name": "Диагностика форсунок Common Rail", "price": "15 руб. за шт.", "price_num": 15, "time": "по запросу", "desc": "Комплексный тест параметров работы высокоточных дизельных форсунок на стенде."},
+        "f2": {"full_name": "Диагностика однопружинных форсунок", "price": "6 руб. за шт.", "price_num": 6, "time": "по запросу", "desc": "Проверка давления открытия распылителя и качества факела распыла."},
+        "f3": {"full_name": "Диагностика двухпружинных форсунок", "price": "15 руб. за шт.", "price_num": 15, "time": "по запросу", "desc": "Проверка параметров работы двухступенчатых механических дизельных форсунок."},
+        "f4": {"full_name": "Ремонт однопружинных форсунок", "price": "35 руб. за шт.", "price_num": 35, "time": "по запросу", "desc": "Разборка, очистка, замена внутренних элементов и точная калибровка."},
+        "f5": {"full_name": "Ремонт двухпружинных форсунок", "price": "75 руб. за шт.", "price_num": 75, "time": "по запросу", "desc": "Профессиональное восстановление геометрии и калибровка ступеней впрыска."}
     }
 }
 
-# ============================================================
-# 2. FSM СОСТОЯНИЯ
-# ============================================================
-class ProfileState(StatesGroup):
-    waiting_for_name = State()
-    waiting_for_car_brand = State()
+# ========== 4. СОСТОЯНИЯ (FSM) ==========
+class OrderState(StatesGroup):
+    waiting_for_phone = State()
 
-# ============================================================
-# 3. КЛАВИАТУРЫ
-# ============================================================
+bot = Bot(token=BOT_TOKEN)
+dp = Dispatcher()
+
+# ========== 5. ГЛАВНОЕ МЕНЮ ==========
 def main_keyboard():
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🛠️ Услуги и цены"), KeyboardButton(text="🛒 Корзина")],
-            [KeyboardButton(text="📱 Наши соцсети"), KeyboardButton(text="👤 Профиль")]
-        ],
-        resize_keyboard=True
-    )
+    buttons = [[KeyboardButton(text=text)] for text in SECTION_MAP.keys()]
+    buttons.append([KeyboardButton(text="🛒 Корзина"), KeyboardButton(text="🗑 Очистить")])
+    buttons.append([KeyboardButton(text="📱 Наши соцсети")]) # Твоя новая кнопка внизу
+    return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-def categories_keyboard():
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔧 Тех. обслуживание", callback_data="cat_tech_maintenance")],
-        [InlineKeyboardButton(text="🛑 Тормозная система", callback_data="cat_brake_system")]
-    ])
-    return kb
-
-# ============================================================
-# 4. /start — СОЗДАНИЕ ИЛИ ВХОД В ПРОФИЛЬ
-# ============================================================
+# ========== 6. КОМАНДА /start ==========
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
-    await state.clear()  # Сбрасываем любые зависшие старые состояния
+    await state.clear()
     user_id = message.from_user.id
-    
     if user_id not in baskets:
         baskets[user_id] = []
         
-    if user_id not in profiles:
-        profiles[user_id] = {}
-        await message.answer(
-            f"🖐️ *Добро пожаловать в Магнат Сервис!*\n\n"
-            f"Давайте познакомимся! Я создам ваш профиль.\n\n"
-            f"✏️ *Введите ваше имя:*",
-            parse_mode="Markdown"
-        )
-        await state.set_state(ProfileState.waiting_for_name)
-        return
-    
-    await message.answer("🚀 Рады видеть вас снова!", reply_markup=main_keyboard())
-
-# ============================================================
-# 5. ЗАПОЛНЕНИЕ ПРОФИЛЯ
-# ============================================================
-@dp.message(ProfileState.waiting_for_name)
-async def process_name(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    profiles[user_id]["name"] = message.text
-    
     await message.answer(
-        f"✅ Отлично, {message.text}!\n\n"
-        f"🚗 *Теперь укажите марку вашего автомобиля:*\n"
-        f"(например, Toyota, BMW, Volkswagen)",
-        parse_mode="Markdown"
-    )
-    await state.set_state(ProfileState.waiting_for_car_brand)
-
-@dp.message(ProfileState.waiting_for_car_brand)
-async def process_car_brand(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    profiles[user_id]["car_brand"] = message.text
-    await state.clear()
-    
-    await message.answer(
-        f"🎉 *Профиль успешно создан!*\n\n"
-        f"👤 Имя: {profiles[user_id]['name']}\n"
-        f"🚗 Авто: {profiles[user_id]['car_brand']}\n\n"
-        f"Используйте меню ниже для навигации.",
+        f"🖐️ *Добро пожаловать в Магнат Сервис!*\n\n"
+        f"🚗 Я помогу вам рассчитать стоимость ремонта вашего авто.\n\n"
+        f"📞 Телефон: `{PHONE}`\n"
+        f"📍 Адрес: `{ADDRESS}`\n\n"
+        f"👇 *Выберите раздел из меню ниже:*",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
 
-# ============================================================
-# 6. ОБРАБОТКА ОСНОВНОГО МЕНЮ
-# ============================================================
-@dp.message(lambda msg: msg.text == "🛠️ Услуги и цены")
-async def show_services(message: types.Message):
-    await message.answer("📂 *Выберите категорию услуг:*", reply_markup=categories_keyboard(), parse_mode="Markdown")
-
-@dp.message(lambda msg: msg.text == "📱 Наши соцсети")
-async def show_socials(message: types.Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎬 TikTok", url=TIKTOK_URL)],
-        [InlineKeyboardButton(text="📸 Instagram", url=INSTAGRAM_URL)],
-        [InlineKeyboardButton(text="🌐 Наш сайт (stomagnat.by)", url=WEBSITE_URL)]
-    ])
-    await message.answer("📱 *Мы в социальных сетях и интернете:*\n\nПодписывайтесь, чтобы следить за акциями и новостями нашего автосервиса!", reply_markup=kb, parse_mode="Markdown")
-
-@dp.message(lambda msg: msg.text == "👤 Профиль")
-async def show_profile(message: types.Message):
+# ========== 7. ОБРАБОТЧИК ТЕЛЕФОНА (СТАВИМ ПЕРВЫМ!) ==========
+@dp.message(OrderState.waiting_for_phone)
+async def process_phone(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    if user_id not in profiles or not profiles[user_id]:
-        await message.answer("❌ Профиль не найден. Напишите /start, чтобы создать его.")
+    
+    # Обработка отмены
+    if message.text == "❌ Отмена":
+        await state.clear()
+        await message.answer("❌ Оформление отменено.", reply_markup=main_keyboard())
         return
+        
+    # Проверяем, что введен номер телефона
+    if not message.text or len(message.text) < 5:
+        await message.answer("❌ Пожалуйста, введите корректный номер телефона (например, +37529XXXXXXX)")
+        return
+        
+    user_phone = message.text
+    basket = baskets.get(user_id, [])
+    
+    if not basket:
+        await message.answer("❌ Ваша корзина пуста. Оформление отменено.", reply_markup=main_keyboard())
+        await state.clear()
+        return
+    
+    text = f"🛒 *Новый заказ!*\n\n"
+    text += f"👤 Клиент: {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
+    text += f"📞 Телефон: `{user_phone}`\n"
+    text += f"🆔 ID: `{user_id}`\n\n"
+    text += f"📋 *Выбранные услуги:*\n"
+    
+    total = 0
+    for key in basket:
+        for code, services in SERVICES.items():
+            if key in services:
+                text += f"🔹 {services[key]['full_name']} — {services[key]['price']}\n"
+                total += services[key]['price_num']
+                break
+                
+    text += f"\n💰 *Итого: {total} руб.*"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📱 Открыть профиль", url=f"tg://user?id={user_id}")]
+    ])
+    
+    try:
+        await bot.send_message(chat_id=MANAGER_ID, text=text, reply_markup=kb, parse_mode="Markdown")
+        await message.answer(
+            f"✅ *Заказ успешно оформлен!*\n\n"
+            f"💰 Общая сумма: *{total} руб.*\n"
+            f"📞 Менеджер свяжется с вами по номеру `{user_phone}` в ближайшее время.",
+            reply_markup=main_keyboard(),
+            parse_mode="Markdown"
+        )
+        baskets[user_id] = []
+    except Exception as e:
+        logging.error(f"Ошибка при отправке заказа менеджеру: {e}")
+        await message.answer(
+            "❌ Произошла ошибка при отправке заявки. Пожалуйста, свяжитесь со СТО напрямую по телефону.",
+            reply_markup=main_keyboard()
+        )
+        
+    await state.clear()
+
+# ========== 8. ОБРАБОТКА МЕНЮ ==========
+@dp.message(F.text)
+async def handle_menu(message: types.Message, state: FSMContext):
+    # Проверяем, не находится ли пользователь в состоянии оформления заказа
+    current_state = await state.get_state()
+    if current_state == OrderState.waiting_for_phone:
+        return  # Игнорируем, если ждём номер
+    
+    text = message.text
+    user_id = message.from_user.id
+    
+    # Проверяем, нажал ли пользователь на категорию услуг
+    if text in SECTION_MAP:
+        code = SECTION_MAP[text]
+        await show_section_services(message, code)
+        return
+            
+    if text == "🛒 Корзина":
+        await show_basket_msg(message)
+    elif text == "🗑 Очистить":
+        baskets[user_id] = []
+        await message.answer("🧹 Корзина очищена!", reply_markup=main_keyboard())
+    # Твой новый обработчик кнопки соцсетей
+    elif text == "📱 Наши соцсети":
+        social_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎬 TikTok", url=TIKTOK_URL)],
+            [InlineKeyboardButton(text="📸 Instagram", url=INSTAGRAM_URL)],
+            [InlineKeyboardButton(text="🌐 Наш сайт", url=WEBSITE_URL)]
+        ])
+        await message.answer("📱 *Мы в соцсетях:*", reply_markup=social_kb, parse_mode="Markdown")
+    else:
+        await message.answer("❓ Пожалуйста, выберите раздел из меню ниже.", reply_markup=main_keyboard())
+
+# Список позиций в подразделе
+async def show_section_services(message: types.Message, code: str):
+    services = SERVICES[code]
+    icon = SECTION_ICONS.get(code, "📌")
+    section_name = CODE_TO_NAME.get(code, "Услуги")
+    
+    buttons = []
+    for key, item in services.items():
+        buttons.append([InlineKeyboardButton(text=item['full_name'], callback_data=f"view_{key}")])
+        
+    buttons.append([InlineKeyboardButton(text="🔙 Назад в главное меню", callback_data="back_to_menu")])
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
     
     await message.answer(
-        f"👤 *Ваш профиль:*\n\n"
-        f"📝 *Имя:* {profiles[user_id].get('name', 'Не указано')}\n"
-        f"🚗 *Автомобиль:* {profiles[user_id].get('car_brand', 'Не указан')}",
+        f"{icon} *{section_name}*\n\n"
+        f"Выберите интересующую услугу ниже для просмотра подробностей:",
+        reply_markup=kb,
         parse_mode="Markdown"
     )
 
-@dp.message(lambda msg: msg.text == "🛒 Корзина")
-async def show_basket_menu(message: types.Message):
-    await show_basket_msg(message)
-
-# ============================================================
-# 7. ОБРАБОТКА ВЫБОРА УСЛУГ
-# ============================================================
-@dp.callback_query(lambda c: c.data.startswith("cat_"))
-async def process_category(callback_query: types.CallbackQuery):
-    category = callback_query.data.split("_", 1)[1]
-    if category not in SERVICES:
-        await callback_query.answer("Категория не найдена.")
-        return
+# ========== 9. КАРТОЧКА ПОЗИЦИИ ==========
+@dp.callback_query(F.data.startswith("view_"))
+async def view_service(callback: types.CallbackQuery):
+    key = callback.data.split("_")[1]
     
-    inline_kb = []
-    for code, service in SERVICES[category].items():
-        inline_kb.append([InlineKeyboardButton(text=service["full_name"], callback_data=f"srv_{code}")])
-        
-    await callback_query.message.edit_text(
-        "📝 *Выберите конкретную услугу для просмотра деталей:*",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=inline_kb),
-        parse_mode="Markdown"
-    )
-    await callback_query.answer()
-
-@dp.callback_query(lambda c: c.data.startswith("srv_"))
-async def process_service_details(callback_query: types.CallbackQuery):
-    srv_code = callback_query.data.split("_", 1)[1]
-    
-    target_service = None
-    for cat, services in SERVICES.items():
-        if srv_code in services:
-            target_service = services[srv_code]
+    found_item = None
+    found_code = None
+    for code, services in SERVICES.items():
+        if key in services:
+            found_item = services[key]
+            found_code = code
             break
             
-    if not target_service:
-        await callback_query.answer("Услуга не найдена.")
+    if not found_item:
+        await callback.answer("Услуга не найдена.")
         return
         
-    text = (
-        f"🛠️ *{target_service['full_name']}*\n\n"
-        f"📝 *Описание:* {target_service['desc']}\n"
-        f"⏱️ *Примерное время:* {target_service['time']}\n"
-        f"💰 *Стоимость:* {target_service['price']}\n"
-    )
-    
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📥 Добавить в корзину", callback_data=f"add_{srv_code}")],
-        [InlineKeyboardButton(text="⬅️ Назад к категориям", callback_data="back_to_cats")]
+        [InlineKeyboardButton(text="✅ Добавить в 🛒", callback_data=f"add_{key}")],
+        [InlineKeyboardButton(text="🔙 Назад к списку", callback_data=f"sect_{found_code}")]
     ])
     
-    await callback_query.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
-    await callback_query.answer()
+    await callback.message.edit_text(
+        f"🔹 *{found_item['full_name']}*\n\n"
+        f"📝 *Описание:* {found_item['desc']}\n\n"
+        f"⏱️ *Занимает времени:* {found_item['time']}\n"
+        f"💰 *Стоимость работы:* {found_item['price']}\n\n"
+        f"Желаете добавить данную позицию в заказ?",
+        reply_markup=kb,
+        parse_mode="Markdown"
+    )
+    await callback.answer()
 
-@dp.callback_query(lambda c: c.data == "back_to_cats")
-async def back_to_categories(callback_query: types.CallbackQuery):
-    await callback_query.message.edit_text("📂 *Выберите категорию услуг:*", reply_markup=categories_keyboard(), parse_mode="Markdown")
-    await callback_query.answer()
-
-# ============================================================
-# 8. ЛОГИКА КОРЗИНЫ
-# ============================================================
-@dp.callback_query(lambda c: c.data.startswith("add_"))
-async def add_to_basket(callback_query: types.CallbackQuery):
-    user_id = callback_query.from_user.id
-    srv_code = callback_query.data.split("_", 1)[1]
+# ========== 10. ДОБАВЛЕНИЕ В КОРЗИНУ ==========
+@dp.callback_query(F.data.startswith("add_"))
+async def add_to_basket(callback: types.CallbackQuery):
+    key = callback.data.split("_")[1]
+    user_id = callback.from_user.id
     
     if user_id not in baskets:
         baskets[user_id] = []
         
-    baskets[user_id].append(srv_code)
-    await callback_query.answer("✅ Услуга добавлена в корзину!")
+    baskets[user_id].append(key)
+    
+    service_name = ""
+    found_code = ""
+    for code, services in SERVICES.items():
+        if key in services:
+            service_name = services[key]['full_name']
+            found_code = code
+            break
+            
+    total = sum_price(user_id)
+    
+    await callback.answer(f"✅ Добавлено!")
+    await callback.message.edit_text(
+        f"✅ Услуга *«{service_name}»* добавлена в корзину!\n\n"
+        f"📦 Всего в корзине: {len(baskets[user_id])} поз.\n"
+        f"💰 Общая сумма: {total} руб.",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="go_to_basket")],
+            [InlineKeyboardButton(text="🔙 К списку услуг", callback_data=f"sect_{found_code}")]
+        ]),
+        parse_mode="Markdown"
+    )
 
-@dp.callback_query(lambda c: c.data == "clear_basket")
-async def clear_basket(callback_query: types.CallbackQuery):
-    user_id = callback_query.from_user.id
-    baskets[user_id] = []
-    await callback_query.message.edit_text("🗑️ Корзина очищена.")
-    await callback_query.answer()
+def sum_price(user_id):
+    total = 0
+    for key in baskets.get(user_id, []):
+        for code, services in SERVICES.items():
+            if key in services:
+                total += services[key]['price_num']
+                break
+    return total
 
-@dp.callback_query(lambda c: c.data == "start_checkout")
-async def start_checkout(callback_query: types.CallbackQuery):
-    await callback_query.message.answer("🎉 Спасибо за заказ! Наш менеджер свяжется с вами в ближайшее время для подтверждения записи.")
-    await callback_query.answer()
+# ========== 11. КНОПКИ НАЗАД ==========
+@dp.callback_query(F.data.startswith("sect_"))
+async def back_to_section(callback: types.CallbackQuery):
+    code = callback.data.split("_")[1]
+    await show_section_services(callback.message, code)
+    await callback.answer()
+
+@dp.callback_query(F.data == "back_to_menu")
+async def back_to_menu(callback: types.CallbackQuery):
+    await callback.message.delete()
+    await callback.message.answer("📋 Выберите раздел услуг:", reply_markup=main_keyboard())
+    await callback.answer()
+
+# ========== 12. КОРЗИНА ==========
+@dp.callback_query(F.data == "go_to_basket")
+async def go_to_basket_callback(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    basket = baskets.get(user_id, [])
+    
+    if not basket:
+        await callback.message.edit_text("🛒 Ваша корзина пуста. Выберите услуги в меню!")
+        await callback.answer()
+        return
+        
+    text = "🛒 *Ваша корзина (выбранные услуги):*\n\n"
+    total = 0
+    for key in basket:
+        for code, services in SERVICES.items():
+            if key in services:
+                item = services[key]
+                text += f"🔹 *{item['full_name']}*\n"
+                text += f"📝 {item['desc']}\n"
+                text += f"⏱️ _Время:_ {item['time']}\n"
+                text += f"💰 _Цена работы:_ {item['price']}\n"
+                text += "—" * 15 + "\n"
+                total += item['price_num']
+                break
+                
+    text += f"\n💰 *Итого ориентировочно: {total} руб.*"
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Оформить заказ", callback_data="start_checkout")],
+        [InlineKeyboardButton(text="🗑 Очистить корзину", callback_data="clear_basket")]
+    ])
+    await callback.message.edit_text(text, reply_markup=kb, parse_mode="Markdown")
+    await callback.answer()
 
 async def show_basket_msg(message: types.Message):
     user_id = message.from_user.id
@@ -258,6 +380,8 @@ async def show_basket_msg(message: types.Message):
             if key in services:
                 item = services[key]
                 text += f"🔹 *{item['full_name']}*\n"
+                text += f"📝 {item['desc']}\n"
+                text += f"⏱️ _Время:_ {item['time']}\n"
                 text += f"💰 _Цена работы:_ {item['price']}\n"
                 text += "—" * 15 + "\n"
                 total += item['price_num']
@@ -271,9 +395,37 @@ async def show_basket_msg(message: types.Message):
     ])
     await message.answer(text, reply_markup=kb, parse_mode="Markdown")
 
-# ============================================================
-# 9. ЗАПУСК ВЕБ-СЕРВЕРА FASTAPI И ВЕБХУКА
-# ============================================================
+@dp.callback_query(F.data == "clear_basket")
+async def clear_basket_callback(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    baskets[user_id] = []
+    await callback.message.edit_text("🧹 Корзина очищена!")
+    await callback.message.answer("📋 Выберите раздел:", reply_markup=main_keyboard())
+    await callback.answer()
+
+# ========== 13. ОФОРМЛЕНИЕ ЗАКАЗА ==========
+@dp.callback_query(F.data == "start_checkout")
+async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
+    user_id = callback.from_user.id
+    if not baskets.get(user_id, []):
+        await callback.answer("Ваша корзина пуста.")
+        return
+        
+    cancel_kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="❌ Отмена")]], 
+        resize_keyboard=True
+    )
+    
+    await callback.message.answer(
+        "📱 Пожалуйста, введите ваш *номер телефона* текстом (например, +37529XXXXXXX), "
+        "чтобы наш менеджер мог с вами связаться:",
+        reply_markup=cancel_kb,
+        parse_mode="Markdown"
+    )
+    await state.set_state(OrderState.waiting_for_phone)
+    await callback.answer()
+
+# ========== 14. FASTAPI СЕРВЕР ==========
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logging.info(f"Ставим Вебхук: {WEBHOOK_URL}")
@@ -292,6 +444,7 @@ async def root():
 async def root_head():
     return Response(status_code=200)
 
+# Принимаем {token} динамически, чтобы избежать 404 ошибок роутинга от Telegram
 @app.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
     try:
@@ -300,5 +453,5 @@ async def webhook(token: str, request: Request):
         await dp.feed_update(bot, update)
         return Response(status_code=200)
     except Exception as e:
-        logging.error(f"Ошибка обработки вебхука: {e}")
+        logging.error(f"Ошибка вебхука: {e}")
         return Response(status_code=500)
