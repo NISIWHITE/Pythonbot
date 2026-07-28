@@ -148,14 +148,23 @@ async def show_main_menu(message: types.Message, state: FSMContext):
 # ============================================================
 # 8. /start — СОЗДАНИЕ ПРОФИЛЯ
 # ============================================================
+# ============================================================
+# 8. /start — СОЗДАНИЕ ИЛИ ВХОД В ПРОФИЛЬ
+# ============================================================
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
+    # ПРИНУДИТЕЛЬНО чистим старые зависшие состояния FSM
+    await state.clear()
+    
     user_id = message.from_user.id
     
+    # Инициализируем корзину, если её нет
     if user_id not in baskets:
         baskets[user_id] = []
-    
+        
+    # Если профиля нет в памяти — запускаем анкетирование
     if user_id not in profiles:
+        profiles[user_id] = {} # Сразу создаем пустой подсловарь
         await message.answer(
             f"🖐️ *Добро пожаловать в Магнат Сервис!*\n\n"
             f"Давайте познакомимся! Я создам ваш профиль.\n\n"
@@ -165,6 +174,7 @@ async def start(message: types.Message, state: FSMContext):
         await state.set_state(ProfileState.waiting_for_name)
         return
     
+    # Если профиль уже есть — просто показываем главное меню
     await show_main_menu(message, state)
 
 # ============================================================
@@ -173,8 +183,6 @@ async def start(message: types.Message, state: FSMContext):
 @dp.message(ProfileState.waiting_for_name)
 async def process_name(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    if user_id not in profiles:
-        profiles[user_id] = {}
     profiles[user_id]["name"] = message.text
     
     await message.answer(
@@ -184,88 +192,6 @@ async def process_name(message: types.Message, state: FSMContext):
         parse_mode="Markdown"
     )
     await state.set_state(ProfileState.waiting_for_car_brand)
-
-@dp.message(ProfileState.waiting_for_car_brand)
-async def process_car_brand(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    profiles[user_id]["car_brand"] = message.text
-    
-    await message.answer(
-        f"✅ Марка: {message.text}\n\n"
-        f"📐 *Теперь введите модель автомобиля:*\n"
-        f"(например, Camry, X5, Golf)",
-        parse_mode="Markdown"
-    )
-    await state.set_state(ProfileState.waiting_for_car_model)
-
-@dp.message(ProfileState.waiting_for_car_model)
-async def process_car_model(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    profiles[user_id]["car_model"] = message.text
-    
-    await message.answer(
-        f"✅ Модель: {message.text}\n\n"
-        f"📅 *Введите год выпуска автомобиля:*\n"
-        f"(например, 2020)",
-        parse_mode="Markdown"
-    )
-    await state.set_state(ProfileState.waiting_for_car_year)
-
-@dp.message(ProfileState.waiting_for_car_year)
-async def process_car_year(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    profiles[user_id]["car_year"] = message.text
-    
-    await message.answer(
-        f"✅ Год: {message.text}\n\n"
-        f"🔢 *Введите VIN номер автомобиля:*\n"
-        f"(можно пропустить, нажав /skip)",
-        parse_mode="Markdown"
-    )
-    await state.set_state(ProfileState.waiting_for_vin)
-
-@dp.message(ProfileState.waiting_for_vin)
-async def process_vin(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    if message.text == "/skip":
-        profiles[user_id]["vin"] = "не указан"
-    else:
-        profiles[user_id]["vin"] = message.text
-    
-    await message.answer(
-        f"✅ VIN: {profiles[user_id]['vin']}\n\n"
-        f"🔢 *Введите государственный номер автомобиля:*\n"
-        f"(можно пропустить, нажав /skip)",
-        parse_mode="Markdown"
-    )
-    await state.set_state(ProfileState.waiting_for_plate)
-
-@dp.message(ProfileState.waiting_for_plate)
-async def process_plate(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    if message.text == "/skip":
-        profiles[user_id]["plate"] = "не указан"
-    else:
-        profiles[user_id]["plate"] = message.text
-    
-    if "phone" not in profiles[user_id]:
-        profiles[user_id]["phone"] = "не указан"
-    
-    profile_text = (
-        f"✅ *Профиль создан!*\n\n"
-        f"👤 Имя: {profiles[user_id].get('name', 'не указано')}\n"
-        f"🚗 Марка: {profiles[user_id].get('car_brand', 'не указана')}\n"
-        f"📐 Модель: {profiles[user_id].get('car_model', 'не указана')}\n"
-        f"📅 Год: {profiles[user_id].get('car_year', 'не указан')}\n"
-        f"🔢 VIN: {profiles[user_id].get('vin', 'не указан')}\n"
-        f"🔢 Госномер: {profiles[user_id].get('plate', 'не указан')}\n\n"
-        f"📞 Если хотите указать телефон — нажмите кнопку '📞 Поделиться номером' в меню."
-    )
-    
-    await message.answer(profile_text, parse_mode="Markdown")
-    await state.clear()
-    await show_main_menu(message, state)
-
 # ============================================================
 # 10. ПРОФИЛЬ
 # ============================================================
