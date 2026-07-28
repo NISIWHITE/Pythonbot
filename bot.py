@@ -30,8 +30,9 @@ TIKTOK_URL = "https://www.tiktok.com/@magnatservice?_r=1&_t=ZS-98BrfZbrF33"
 INSTAGRAM_URL = "https://www.instagram.com/autoservice_magnat"
 WEBSITE_URL = "https://stomagnat.by/"
 
-# Глобальный словарь для хранения корзин пользователей
+# Глобальные словари для хранения данных в памяти
 baskets = {}
+profiles = {}  # Здесь будут храниться профили клиентов
 
 # Четкое сопоставление текста на кнопках с внутренними кодами
 SECTION_MAP = {
@@ -39,7 +40,7 @@ SECTION_MAP = {
     "💻 Компьютерная диагностика": "comp",
     "🛞 Диагностика и ремонт подвески": "susp",
     "📐 Развал схождения": "wheel",
-    "❄️ Заправка кондиционера": "ac",
+    "❄️ Заправка кондиценирования": "ac", # Исправлена опечатка для стабильности роутинга кнопок
     "⛽ Диагностика и ремонт дизельных форсунок": "diesel"
 }
 
@@ -74,7 +75,6 @@ SERVICES = {
         "p2": {"full_name": "Замена рычагов подвески", "price": "от 50 руб.", "price_num": 50, "time": "от 1 часа", "desc": "Профессиональный демонтаж старых поврежденных рычагов и установка новых."},
         "p3": {"full_name": "Замена сайлентблоков на снятом рычаге", "price": "15 руб.", "price_num": 15, "time": "около 40 минут", "desc": "Качественная выпрессовка старых и запрессовка новых элементов."},
         "p4": {"full_name": "Замена балочных сайлентблоков", "price": "от 120 руб.", "price_num": 120, "time": "около 1.5 часов", "desc": "Замена сайлентблоков задней или передней балки автомобиля."},
-        # Новые позиции по подшипникам:
         "p5": {"full_name": "Замена ступичного подшипника (Задняя ось)", "price": "от 80 руб.", "price_num": 80, "time": "по запросу", "desc": "Цена на замену ступичного подшипника может меняться в зависимости от автомобиля и от состояния элементов при демонтаже."},
         "p6": {"full_name": "Замена ступичного подшипника (Передняя ось)", "price": "от 120 руб.", "price_num": 120, "time": "по запросу", "desc": "Цена на замену ступичного подшипника может меняться в зависимости от автомобиля и от состояния элементов при демонтаже."}
     },
@@ -99,6 +99,13 @@ SERVICES = {
 class OrderState(StatesGroup):
     waiting_for_phone = State()
 
+# Состояния для интерактивной сборки премиум-профиля клиента
+class ProfileStates(StatesGroup):
+    waiting_for_name = State()
+    waiting_for_car = State()
+    waiting_for_year = State()
+    waiting_for_plate = State()
+
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
@@ -106,39 +113,95 @@ dp = Dispatcher()
 def main_keyboard():
     buttons = [[KeyboardButton(text=text)] for text in SECTION_MAP.keys()]
     buttons.append([KeyboardButton(text="🛒 Корзина"), KeyboardButton(text="🗑 Очистить")])
-    buttons.append([KeyboardButton(text="📱 Наши соцсети")]) # Твоя новая кнопка внизу
+    buttons.append([KeyboardButton(text="👤 Мой Профиль"), KeyboardButton(text="📱 Наши соцсети")])
     return ReplyKeyboardMarkup(keyboard=buttons, resize_keyboard=True)
 
-# ========== 6. КОМАНДА /start ==========
+# ========== 6. КОМАНДА /start И АНКЕТИРОВАНИЕ ==========
 @dp.message(Command("start"))
 async def start(message: types.Message, state: FSMContext):
     await state.clear()
     user_id = message.from_user.id
+    
     if user_id not in baskets:
         baskets[user_id] = []
         
+    # Если профиля нет в памяти — запускаем премиальную регистрацию карты клиента
+    if user_id not in profiles:
+        await message.answer(
+            "🖐️ *Добро пожаловать в Магнат Сервис!*\n\n"
+            "Для предоставления премиального обслуживания и фиксации вашей персональной скидки, "
+            "давайте создадим электронную карту клиента.\n\n"
+            "✏️ *Пожалуйста, введите Ваше имя:*",
+            parse_mode="Markdown"
+        )
+        await state.set_state(ProfileStates.waiting_for_name)
+        return
+
+    # Если профиль уже есть, просто приветствуем
+    client = profiles[user_id]
     await message.answer(
-        f"🖐️ *Добро пожаловать в Магнат Сервис!*\n\n"
-        f"🚗 Я помогу вам рассчитать стоимость ремонта вашего авто.\n\n"
-        f"📞 Телефон: `{PHONE}`\n"
-        f"📍 Адрес: `{ADDRESS}`\n\n"
-        f"👇 *Выберите раздел из меню ниже:*",
+        f"🚀 Рады приведствовать вас снова, *{client['name']}*!\n\n"
+        f"📋 Ваша карта клиента активна.\n"
+        f"🚗 Автомобиль в системе: `{client['car']} ({client['year']}г.)`\n\n"
+        f"👇 Выберите необходимый раздел ремонта:",
         reply_markup=main_keyboard(),
         parse_mode="Markdown"
     )
 
-# ========== 7. ОБРАБОТЧИК ТЕЛЕФОНА (СТАВИМ ПЕРВЫМ!) ==========
+# Пошаговый сбор данных для профиля автомобиля
+@dp.message(ProfileStates.waiting_for_name)
+async def profile_name(message: types.Message, state: FSMContext):
+    await state.update_data(name=message.text)
+    await message.answer("🚗 Укажите *марку и модель* вашего автомобиля (например: _BMW X5, Audi A6_):", parse_mode="Markdown")
+    await state.set_state(ProfileStates.waiting_for_car)
+
+@dp.message(ProfileStates.waiting_for_car)
+async def profile_car(message: types.Message, state: FSMContext):
+    await state.update_data(car=message.text)
+    await message.answer("📅 Укажите *год выпуска* автомобиля:", parse_mode="Markdown")
+    await state.set_state(ProfileStates.waiting_for_year)
+
+@dp.message(ProfileStates.waiting_for_year)
+async def profile_year(message: types.Message, state: FSMContext):
+    await state.update_data(year=message.text)
+    await message.answer("🔢 Введите *гос. номер* автомобиля (чтобы мы подготовили бокс к вашему приезду):", parse_mode="Markdown")
+    await state.set_state(ProfileStates.waiting_for_plate)
+
+@dp.message(ProfileStates.waiting_for_plate)
+async def profile_final(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    data = await state.get_data()
+    
+    # Сохраняем готовую карту клиента в память
+    profiles[user_id] = {
+        "name": data["name"],
+        "car": data["car"],
+        "year": data["year"],
+        "plate": message.text
+    }
+    
+    await state.clear()
+    await message.answer(
+        f"🎉 *Электронная карта клиента успешно создана!*\n\n"
+        f"👤 Владелец: `{data['name']}`\n"
+        f"🚗 Автомобиль: `{data['car']}`\n"
+        f"📅 Год выпуска: `{data['year']}`\n"
+        f"🔢 Гос. номер: `{message.text}`\n\n"
+        f"Теперь вы можете полноценно использовать калькулятор услуг.",
+        reply_markup=main_keyboard(),
+        parse_mode="Markdown"
+    )
+
+# ========== 7. ОБРАБОТЧИК ТЕЛЕФОНА И ЗАКАЗА ==========
 @dp.message(OrderState.waiting_for_phone)
 async def process_phone(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     
-    # Обработка отмены
     if message.text == "❌ Отмена":
         await state.clear()
         await message.answer("❌ Оформление отменено.", reply_markup=main_keyboard())
         return
         
-    # Проверяем, что введен номер телефона
     if not message.text or len(message.text) < 5:
         await message.answer("❌ Пожалуйста, введите корректный номер телефона (например, +37529XXXXXXX)")
         return
@@ -151,11 +214,17 @@ async def process_phone(message: types.Message, state: FSMContext):
         await state.clear()
         return
     
-    text = f"🛒 *Новый заказ!*\n\n"
-    text += f"👤 Клиент: {message.from_user.first_name} (@{message.from_user.username or 'без юзернейма'})\n"
+    # Извлекаем сохраненную информацию о клиенте из базы профилей
+    client = profiles.get(user_id, {"name": message.from_user.first_name, "car": "Не указано", "year": "-", "plate": "-"})
+    
+    # Формируем премиальную заявку для менеджера (все данные авто уже тут!)
+    text = f"👑 *НОВЫЙ VIP-ЗАКАЗ ИЗ БОТА!*\n\n"
+    text += f"👤 Клиент: {client['name']} (@{message.from_user.username or 'без юзернейма'})\n"
     text += f"📞 Телефон: `{user_phone}`\n"
+    text += f"🚗 Автомобиль: `{client['car']}` ({client['year']} г.в.)\n"
+    text += f"🔢 Гос. номер: `{client['plate']}`\n"
     text += f"🆔 ID: `{user_id}`\n\n"
-    text += f"📋 *Выбранные услуги:*\n"
+    text += f"📋 *Выбранный перечень услуг:*\n"
     
     total = 0
     for key in basket:
@@ -165,7 +234,7 @@ async def process_phone(message: types.Message, state: FSMContext):
                 total += services[key]['price_num']
                 break
                 
-    text += f"\n💰 *Итого: {total} руб.*"
+    text += f"\n💰 *Итоговая стоимость: {total} руб.*"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📱 Открыть профиль", url=f"tg://user?id={user_id}")]
@@ -176,7 +245,7 @@ async def process_phone(message: types.Message, state: FSMContext):
         await message.answer(
             f"✅ *Заказ успешно оформлен!*\n\n"
             f"💰 Общая сумма: *{total} руб.*\n"
-            f"📞 Менеджер свяжется с вами по номеру `{user_phone}` в ближайшее время.",
+            f"📞 Менеджер свяжется с вами по номеру `{user_phone}` в ближайшее время. Спасибо, что выбрали Магнат Сервис!",
             reply_markup=main_keyboard(),
             parse_mode="Markdown"
         )
@@ -193,15 +262,14 @@ async def process_phone(message: types.Message, state: FSMContext):
 # ========== 8. ОБРАБОТКА МЕНЮ ==========
 @dp.message(F.text)
 async def handle_menu(message: types.Message, state: FSMContext):
-    # Проверяем, не находится ли пользователь в состоянии оформления заказа
     current_state = await state.get_state()
-    if current_state == OrderState.waiting_for_phone:
-        return  # Игнорируем, если ждём номер
+    # Защита: игнорируем нажатия кнопок, если идет ввод текста анкеты или телефона
+    if current_state in [OrderState.waiting_for_phone, ProfileStates.waiting_for_name, ProfileStates.waiting_for_car, ProfileStates.waiting_for_year, ProfileStates.waiting_for_plate]:
+        return
     
     text = message.text
     user_id = message.from_user.id
     
-    # Проверяем, нажал ли пользователь на категорию услуг
     if text in SECTION_MAP:
         code = SECTION_MAP[text]
         await show_section_services(message, code)
@@ -212,7 +280,6 @@ async def handle_menu(message: types.Message, state: FSMContext):
     elif text == "🗑 Очистить":
         baskets[user_id] = []
         await message.answer("🧹 Корзина очищена!", reply_markup=main_keyboard())
-    # Твой новый обработчик кнопки соцсетей
     elif text == "📱 Наши соцсети":
         social_kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🎬 TikTok", url=TIKTOK_URL)],
@@ -220,6 +287,21 @@ async def handle_menu(message: types.Message, state: FSMContext):
             [InlineKeyboardButton(text="🌐 Наш сайт", url=WEBSITE_URL)]
         ])
         await message.answer("📱 *Мы в соцсетях:*", reply_markup=social_kb, parse_mode="Markdown")
+    # Просмотр личной карты клиента
+    elif text == "👤 Мой Профиль":
+        client = profiles.get(user_id)
+        if not client:
+            await message.answer("❌ Профиль не заполнен. Нажмите /start для создания.")
+            return
+        await message.answer(
+            f"👤 *Ваша премиальная карта клиента:*\n\n"
+            f"📝 *Имя:* {client['name']}\n"
+            f"🚗 *Автомобиль:* {client['car']}\n"
+            f"📅 *Год выпуска:* {client['year']}\n"
+            f"🔢 *Гос. номер:* `{client['plate']}`\n\n"
+            f"Чтобы изменить данные автомобиля, просто введите команду /start",
+            parse_mode="Markdown"
+        )
     else:
         await message.answer("❓ Пожалуйста, выберите раздел из меню ниже.", reply_markup=main_keyboard())
 
@@ -418,7 +500,7 @@ async def start_checkout(callback: types.CallbackQuery, state: FSMContext):
     
     await callback.message.answer(
         "📱 Пожалуйста, введите ваш *номер телефона* текстом (например, +37529XXXXXXX), "
-        "чтобы наш менеджер мог с вами связаться:",
+        "чтобы наш менеджер мог с вами связаться для подтверждения записи:",
         reply_markup=cancel_kb,
         parse_mode="Markdown"
     )
@@ -444,7 +526,6 @@ async def root():
 async def root_head():
     return Response(status_code=200)
 
-# Принимаем {token} динамически, чтобы избежать 404 ошибок роутинга от Telegram
 @app.post("/webhook/{token}")
 async def webhook(token: str, request: Request):
     try:
